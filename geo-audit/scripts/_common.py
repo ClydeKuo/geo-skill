@@ -125,8 +125,14 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10):
     result["headers"] = headers
     ct = headers.get("content-type", "")
     result["content_type"] = ct.split(";")[0].strip().lower() if ct else ""
-    if _is_text(ct):
-        body = _decompress(raw, headers.get("content-encoding"))
+    body = _decompress(raw, headers.get("content-encoding"))
+    is_gzip_file = body[:2] == b"\x1f\x8b"
+    if is_gzip_file:  # 如 sitemap.xml.gz：文件本身是 gzip
+        try:
+            body = gzip.decompress(body)
+        except (OSError, EOFError):
+            is_gzip_file = False
+    if _is_text(ct) or is_gzip_file:
         result["text"] = decode_body(body, ct)
     return result
 
@@ -197,3 +203,16 @@ def emit(result, out=None):
         with open(out, "w", encoding="utf-8") as f:
             f.write(data)
     sys.stdout.write(data + "\n")
+
+
+_MULTI_SUFFIX = {"com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn", "co.uk", "org.uk",
+                 "com.hk", "com.tw", "co.jp", "com.au", "com.sg", "co.kr"}
+
+
+def registrable_domain(host):
+    """近似的注册域：默认取后两段，常见二级后缀取后三段。"""
+    host = (host or "").lower().strip(".").split(":")[0]
+    parts = host.split(".")
+    if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_SUFFIX:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
