@@ -152,8 +152,11 @@ def _xml_locs(text):
     return root.tag.split("}")[-1], locs
 
 
-def parse_sitemaps(robots_text, fetcher, origin=None, limit=500):
-    """读取 robots.txt 声明的 sitemap（无声明则试 /sitemap.xml），sitemapindex 递归一层。"""
+def parse_sitemaps(robots_text, fetcher, origin=None, limit=500, max_files=30, max_depth=3):
+    """读取 robots.txt 声明的 sitemap（无声明则试 /sitemap.xml），sitemapindex 最多递归 max_depth 层。
+
+    count 为实际读取到的 URL 数（不超过 limit）；truncated=True 表示因上限没有读完。
+    """
     sources = []
     for line in (robots_text or "").splitlines():
         if line.strip().lower().startswith("sitemap:"):
@@ -161,28 +164,36 @@ def parse_sitemaps(robots_text, fetcher, origin=None, limit=500):
     if not sources and origin:
         sources = [origin + "/sitemap.xml"]
     urls, used = [], []
+    state = {"truncated": False, "files": 0}
 
-    def load(u):
+    def walk(u, depth):
+        if len(urls) >= limit or state["files"] >= max_files:
+            state["truncated"] = True
+            return
+        state["files"] += 1
         polite_sleep()
         resp = fetcher(u)
         if resp.get("status") != 200 or resp.get("text") is None:
-            return None, []
+            return
         used.append(u)
-        return _xml_locs(resp["text"])
-
-    for src in sources[:10]:
-        kind, locs = load(src)
+        kind, locs = _xml_locs(resp["text"])
         if kind == "sitemapindex":
-            for child in locs[:20]:
-                urls += load(child)[1]
-                if len(urls) >= limit:
-                    break
+            if depth >= max_depth:
+                state["truncated"] = True
+                return
+            for child in locs:
+                walk(child, depth + 1)
         else:
-            urls += locs
-        if len(urls) >= limit:
-            break
-    urls = list(dict.fromkeys(urls))
-    return {"urls": urls[:limit], "sources": used, "count": len(urls)}
+            for loc in locs:
+                if loc not in urls:
+                    if len(urls) >= limit:
+                        state["truncated"] = True
+                        return
+                    urls.append(loc)
+
+    for src in sources:
+        walk(src, 1)
+    return {"urls": urls, "sources": used, "count": len(urls), "truncated": state["truncated"]}
 
 
 def ua_block_check(url, fetcher_by_ua):
@@ -287,8 +298,13 @@ def run(url, proxy=None, timeout=10):
         out["ua_blocking"] = {}
 
     sm = parse_sitemaps(rob["text"] if verdicts["source"] == "ok" else None, get, origin=origin)
-    out["sitemap"] = item("pass" if sm["count"] else "warn", sm,
-                          "sitemap 共 %d 个 URL" % sm["count"] if sm["count"] else "未找到可用 sitemap")
+    if not sm["count"]:
+        sm_detail = "未找到可用 sitemap"
+    elif sm["truncated"]:
+        sm_detail = "已读取 %d 个 URL（达到读取上限，sitemap 未读完，不代表全站总数）" % sm["count"]
+    else:
+        sm_detail = "sitemap 共 %d 个 URL（已全部读取）" % sm["count"]
+    out["sitemap"] = item("pass" if sm["count"] else "warn", sm, sm_detail)
 
     parser = _HeadParser()
     try:
@@ -314,7 +330,8 @@ def run(url, proxy=None, timeout=10):
     polite_sleep()
     llms = get(origin + "/llms.txt")
     has_llms = llms["status"] == 200 and llms["text"] is not None and not _is_html(llms["text"])
-    out["llms_txt"] = item("pass", has_llms, "仅记录：llms.txt 对 AI 引用无可测效果（E10），不作为建议重点")
+    out["llms_txt"] = item("pass", has_llms, "%s。仅记录：llms.txt 对 AI 引用无可测效果（E10），无需处理" % (
+        "存在" if has_llms else "不存在"))
 
     m = _ICP.search(extract_text(home["text"] or "") + (home["text"] or ""))
     out["icp"] = item("pass", m.group(0), "首页展示 ICP 备案号") if m else item(

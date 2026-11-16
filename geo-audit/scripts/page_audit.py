@@ -18,7 +18,8 @@ _NUM_PATTERNS = [
     r"\d+(?:\.\d+)?\s*%",                                                     # 百分比
     r"[¥￥$€£]\s?\d[\d,]*(?:\.\d+)?",                                          # 货币符号
     r"\d[\d,]*(?:\.\d+)?\s*(?:元|万元|亿元|美元|USD|RMB)",                      # 货币单位
-    r"\d[\d,]*(?:\.\d+)?\s*(?:万|亿|千|百万|million|billion|倍|x\b|kg|km|小时|分钟|天|人|家|次)",  # 带单位
+    r"\d[\d,]*(?:\.\d+)?\s*(?:万|亿|千|百万|million|billion|倍|小时|分钟|天|人|家|次|℃|°[CF]|毫米|厘米|微米|"
+    r"(?:mm/s|mm|cm|km|μm|µm|nm|kg|mAh|kWh|kW|ms|GB|MB|TB|Hz|ml|W|V|g|L|m|s|x)(?![A-Za-z]))",  # 带单位
 ]
 _NUM = re.compile("|".join("(?:%s)" % p for p in _NUM_PATTERNS), re.I)
 _DATE = re.compile(
@@ -44,9 +45,21 @@ class _PageParser(HTMLParser):
         self.rel_author = None
         self._in_rel_author = False
         self.time_datetime = None
+        self.canonical = None
+        self._chrome = 0      # 处于 nav / 页头 / 页脚中的深度
+        self._content = 0     # 处于 main / article 中的深度
+        self._chrome_stack = []
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
+        if tag in ("main", "article"):
+            self._content += 1
+        # article 内的 header/footer 属于正文；页面级的 header/footer/nav 是导航外壳
+        if tag == "nav" or (tag in ("header", "footer") and self._content == 0):
+            self._chrome += 1
+            self._chrome_stack.append(tag)
+        if tag == "link" and "canonical" in a.get("rel", "").lower().split() and self.canonical is None:
+            self.canonical = a.get("href")
         if tag == "html" and a.get("lang"):
             self.lang = a["lang"]
         elif tag == "title" and self.title is None:
@@ -55,7 +68,7 @@ class _PageParser(HTMLParser):
             key = (a.get("name") or a.get("property") or "").lower()
             if key:
                 self.meta.setdefault(key, a.get("content", ""))
-        elif re.fullmatch(r"h[1-6]", tag):
+        elif re.fullmatch(r"h[1-6]", tag) and not self._chrome:
             self._h, self._buf = int(tag[1]), []
         elif tag in self.counts:
             self.counts[tag] += 1
@@ -63,7 +76,7 @@ class _PageParser(HTMLParser):
             self._in_jsonld, self._buf = True, []
         elif tag == "time" and a.get("datetime") and not self.time_datetime:
             self.time_datetime = a["datetime"]
-        if tag == "a" and a.get("href"):
+        if tag == "a" and a.get("href") and not self._chrome:
             self.links.append(a["href"])
             if "author" in a.get("rel", "").lower().split():
                 self._in_rel_author, self._buf = True, []
@@ -71,6 +84,11 @@ class _PageParser(HTMLParser):
             self.microdata.append(a["itemtype"].rstrip("/").rsplit("/", 1)[-1])
 
     def handle_endtag(self, tag):
+        if self._chrome_stack and tag == self._chrome_stack[-1]:
+            self._chrome_stack.pop()
+            self._chrome -= 1
+        if tag in ("main", "article") and self._content:
+            self._content -= 1
         if tag == "title" and self._in_title:
             self.title, self._in_title = "".join(self._buf).strip(), False
         elif self._h and tag == "h%d" % self._h:
@@ -137,6 +155,7 @@ def audit_html(html, url):
             skips += 1
     return {
         "title": p.title,
+        "canonical": urllib.parse.urljoin(url, p.canonical) if p.canonical else None,
         "meta_description": p.meta.get("description"),
         "lang": p.lang,
         "h1_count": sum(1 for h in p.headings if h["level"] == 1),

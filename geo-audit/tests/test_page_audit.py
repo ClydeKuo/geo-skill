@@ -32,6 +32,24 @@ class AuditHtmlTests(unittest.TestCase):
         self.assertEqual(r["heading_skips"], 0)
         self.assertEqual(r["og"].get("og:title"), "智能门锁选购指南")
 
+    def test_hardware_units_count_as_numbers(self):
+        html = "<p>打印速度 600 mm/s，热床 110 ℃，喷嘴 300°C，功率 350 W，层厚 50 μm，换料 6 s。</p>"
+        self.assertGreaterEqual(audit_html(html, URL)["numbers"], 6)
+
+    def test_chrome_links_and_headings_excluded(self):
+        html = ("<header><h6>菜单</h6><a href='https://facebook.com/x'>fb</a></header>"
+                "<nav><a href='https://twitter.com/x'>tw</a><h4>导航</h4></nav>"
+                "<main><h1>标题</h1><h2>小节</h2><p><a href='https://www.samr.gov.cn/a'>来源</a></p></main>"
+                "<footer><h6>关于</h6><a href='https://youtube.com/x'>yt</a></footer>")
+        r = audit_html(html, URL)
+        self.assertEqual(r["external_links"], 1)
+        self.assertEqual([h["text"] for h in r["headings"]], ["标题", "小节"])
+        self.assertEqual(r["heading_skips"], 0)
+
+    def test_canonical(self):
+        r = audit_html('<head><link rel="canonical" href="/cn/guide"></head><p>x</p>', URL)
+        self.assertEqual(r["canonical"], "https://www.lock-example.com.cn/cn/guide")
+
     def test_heading_skip(self):
         self.assertEqual(audit_html("<h2>a</h2><h4>b</h4>", URL)["heading_skips"], 1)
 

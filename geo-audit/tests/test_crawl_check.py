@@ -86,6 +86,39 @@ class SitemapTests(unittest.TestCase):
         self.assertEqual(sorted(r["urls"]), ["https://e.com/1", "https://e.com/2", "https://e.com/3"])
 
 
+    def test_sitemap_nested_index_and_truncation(self):
+        """两层 sitemapindex 要递归到 urlset；超过上限要标记 truncated。"""
+        ns = 'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+        holder = {}
+
+        def idx(children):
+            def h(_h):
+                b = holder["base"]
+                body = "<sitemapindex %s>%s</sitemapindex>" % (
+                    ns, "".join("<sitemap><loc>%s%s</loc></sitemap>" % (b, c) for c in children))
+                return 200, XML, body.encode()
+            return h
+
+        def urlset(n, prefix):
+            body = "<urlset %s>%s</urlset>" % (ns, "".join(
+                "<url><loc>https://e.com/%s/%d</loc></url>" % (prefix, i) for i in range(n)))
+            return 200, XML, body.encode()
+
+        base, stop = serve({"/root.xml": idx(["/mid.xml"]), "/mid.xml": idx(["/p.xml", "/b.xml"]),
+                            "/p.xml": urlset(3, "p"), "/b.xml": urlset(2, "b")})
+        holder["base"] = base
+        try:
+            r = parse_sitemaps("Sitemap: %s/root.xml" % base, lambda u: fetch(u))
+            self.assertEqual(r["count"], 5)
+            self.assertFalse(r["truncated"])
+            self.assertTrue(all("/p/" in u or "/b/" in u for u in r["urls"]))
+            r2 = parse_sitemaps("Sitemap: %s/root.xml" % base, lambda u: fetch(u), limit=4)
+        finally:
+            stop()
+        self.assertEqual(r2["count"], 4)
+        self.assertTrue(r2["truncated"])
+
+
 class UABlockTests(unittest.TestCase):
     def _serve(self, blocked):
         def home(headers):
