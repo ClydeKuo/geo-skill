@@ -82,5 +82,48 @@ class MarketProfileTests(unittest.TestCase):
                 self.assertIn(name, names, "%s 第4节的爬虫 %s 不在 AI_CRAWLERS 中" % (code, name))
 
 
+SKILL_MD = os.path.join(os.path.dirname(HERE), "SKILL.md")
+
+
+class SkillDocTests(unittest.TestCase):
+    def doc(self):
+        with open(SKILL_MD, encoding="utf-8") as f:
+            return f.read()
+
+    def test_no_claude_specific_terms(self):
+        doc = self.doc()
+        self.assertNotIn("Base directory", doc)
+        for line in doc.splitlines():
+            if "WebSearch" in line or "WebFetch" in line:
+                self.assertIn("Claude Code", line, line)
+
+    def test_frontmatter(self):
+        doc = self.doc()
+        self.assertTrue(doc.startswith("---\n"))
+        fm = doc.split("---\n")[1]
+        keys = [ln.split(":", 1)[0] for ln in fm.splitlines() if ln and not ln.startswith(" ")]
+        self.assertEqual(keys, ["name", "description"])
+        self.assertIn("name: geo-audit", fm)
+        self.assertLessEqual(len(fm), 1024)
+
+    def test_mentions_new_flags(self):
+        doc = self.doc()
+        for s in ("--markets", "--lang", "--save-html", "install.sh", "rate_limited", "markets/", "checklist.md"):
+            self.assertIn(s, doc, s)
+        self.assertNotIn("checklist-cn", doc)
+        self.assertNotIn("checklist-global", doc)
+
+    def test_legacy_audit_json_mapping(self):
+        doc = self.doc()
+        self.assertIn('"both"', doc)
+        self.assertIn("cn,us", doc)
+
+    def test_no_private_info(self):
+        files = [SKILL_MD] + [os.path.join(dp, f) for dp, _, fs in os.walk(REF) for f in fs]
+        for path in files:
+            with open(path, encoding="utf-8") as f:
+                self.assertNotIn("192.168.", f.read(), path)
+
+
 if __name__ == "__main__":
     unittest.main()
