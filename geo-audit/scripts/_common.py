@@ -3,6 +3,7 @@
 只依赖 Python 3 标准库。
 """
 import argparse
+import email.utils
 import gzip
 import json
 import re
@@ -21,14 +22,63 @@ BROWSER_UA = (
 MAX_BYTES = 5 * 1024 * 1024
 
 _last_request = [0.0]
+DEFAULT_INTERVAL = 1.0
+MAX_INTERVAL = 10.0
+DEFAULT_RETRY_AFTER = 10.0
+MAX_RETRY_WAIT = 60.0
+_interval = [DEFAULT_INTERVAL]
 
 
-def polite_sleep(seconds=1.0):
-    """保证相邻请求间隔至少 seconds 秒。"""
-    wait = _last_request[0] + seconds - time.monotonic()
+def current_interval():
+    return _interval[0]
+
+
+def reset_interval():
+    """仅供测试：恢复默认请求间隔。"""
+    _interval[0] = DEFAULT_INTERVAL
+
+
+def _note_rate_limited():
+    """遇到 429 后请求间隔翻倍（上限 MAX_INTERVAL），本进程内不回落。"""
+    _interval[0] = min(_interval[0] * 2, MAX_INTERVAL)
+
+
+def polite_sleep(seconds=None):
+    """保证相邻请求间隔至少 max(seconds, 当前自适应间隔) 秒。"""
+    gap = max(seconds or 0, current_interval())
+    wait = _last_request[0] + gap - time.monotonic()
     if wait > 0:
         time.sleep(wait)
     _last_request[0] = time.monotonic()
+
+
+def parse_retry_after(value, now=None):
+    """Retry-After（秒数或 HTTP 日期）→ 等待秒数；缺省或无法解析时 DEFAULT_RETRY_AFTER。"""
+    if value is None:
+        return DEFAULT_RETRY_AFTER
+    value = value.strip()
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        pass
+    try:
+        dt = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return DEFAULT_RETRY_AFTER
+    if dt is None:
+        return DEFAULT_RETRY_AFTER
+    now = time.time() if now is None else now
+    return max(round(dt.timestamp() - now, 3), 0.0)
+
+
+def accept_language(lang):
+    """按目标语言生成 Accept-Language；None 时为默认中文优先。"""
+    if not lang:
+        return "zh-CN,zh;q=0.9,en;q=0.8"
+    primary = lang.split("-")[0]
+    if primary == lang:
+        return "%s,en;q=0.5" % lang
+    return "%s,%s;q=0.9,en;q=0.5" % (lang, primary)
 
 
 def item(status, value=None, detail=""):
@@ -113,13 +163,42 @@ def _ascii_url(url):
     return urllib.parse.urlunsplit((p.scheme, netloc, path, query, ""))
 
 
-def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False):
+def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False, lang=None):
     """GET 一个 URL。HTTP 错误码照实返回；网络错误或非法 URL 时 status=None、error 为原因，不抛异常。
 
     force_text=True 时不论 Content-Type 都解码为文本（用于 robots.txt 等）。
+    lang 为 BCP 47 标签时据此设置 Accept-Language。
+    遇到 429、或带 Retry-After 的 503（挑战页除外）时，按 Retry-After 等待后重试一次；
+    Retry-After 超过 MAX_RETRY_WAIT 不等待。结果中 rate_limited=True 表示最终仍被限流。
     """
+    r = _fetch_once(url, ua, proxy, timeout, force_text, lang)
+    if not _should_retry(r):
+        return r
+    if r["status"] == 429:
+        _note_rate_limited()
+    wait = parse_retry_after(r["headers"].get("retry-after"))
+    if wait > MAX_RETRY_WAIT:
+        r["rate_limited"] = True
+        return r
+    time.sleep(wait)
+    r2 = _fetch_once(url, ua, proxy, timeout, force_text, lang)
+    if _should_retry(r2):
+        if r2["status"] == 429:
+            _note_rate_limited()
+        r2["rate_limited"] = True
+    return r2
+
+
+def _should_retry(r):
+    if is_challenge(r):
+        return False
+    return r["status"] == 429 or (r["status"] == 503 and "retry-after" in r["headers"])
+
+
+def _fetch_once(url, ua, proxy, timeout, force_text, lang):
     result = {"url": url, "final_url": url, "status": None, "headers": {}, "content_type": "",
-              "text": None, "bytes": 0, "elapsed_ms": 0, "truncated": False, "error": None}
+              "text": None, "bytes": 0, "elapsed_ms": 0, "truncated": False, "error": None,
+              "rate_limited": False}
     start = time.monotonic()
     try:
         handlers = []
@@ -130,7 +209,7 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False):
             "User-Agent": ua,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Encoding": "gzip, deflate",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Language": accept_language(lang),
         })
         try:
             resp = opener.open(req, timeout=timeout)

@@ -122,3 +122,114 @@ class TextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import email.utils
+import time as _time
+from unittest import mock as _mock
+
+from _common import accept_language, current_interval, parse_retry_after, reset_interval
+import _common as _c
+
+
+class LangTests(unittest.TestCase):
+    def test_accept_language_values(self):
+        self.assertEqual(accept_language(None), "zh-CN,zh;q=0.9,en;q=0.8")
+        self.assertEqual(accept_language("ja-JP"), "ja-JP,ja;q=0.9,en;q=0.5")
+        self.assertEqual(accept_language("es"), "es,en;q=0.5")
+
+    def test_fetch_sends_lang(self):
+        base, stop = serve({"/": lambda h: (200, {"Content-Type": "text/plain"},
+                                            h.get("Accept-Language", "").encode())})
+        try:
+            r = fetch(base + "/", lang="ko-KR")
+        finally:
+            stop()
+        self.assertTrue(r["text"].startswith("ko-KR,ko;q=0.9"))
+
+
+class RateLimitTests(unittest.TestCase):
+    def setUp(self):
+        reset_interval()
+        self.sleeps = []
+        p = _mock.patch.object(_c.time, "sleep", side_effect=lambda s: self.sleeps.append(s))
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(reset_interval)
+
+    def _counting(self, responses):
+        calls = []
+
+        def route(_h):
+            calls.append(1)
+            return responses[min(len(calls), len(responses)) - 1]
+        return route, calls
+
+    def test_parse_retry_after(self):
+        self.assertEqual(parse_retry_after("5"), 5.0)
+        self.assertEqual(parse_retry_after("abc"), 10.0)
+        self.assertEqual(parse_retry_after(None), 10.0)
+        self.assertEqual(parse_retry_after("-3"), 0.0)
+        now = 1_800_000_000.0
+        date = email.utils.formatdate(now + 30, usegmt=True)
+        self.assertEqual(parse_retry_after(date, now=now), 30.0)
+
+    def test_429_retry_once_then_ok(self):
+        route, calls = self._counting([(429, {"Retry-After": "2"}, b"slow"),
+                                       (200, {"Content-Type": "text/html"}, b"<p>ok</p>")])
+        base, stop = serve({"/": route})
+        try:
+            r = fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(r["status"], 200)
+        self.assertFalse(r["rate_limited"])
+        self.assertIn(2.0, self.sleeps)
+
+    def test_429_twice_returns_429(self):
+        route, calls = self._counting([(429, {"Retry-After": "1"}, b"slow")])
+        base, stop = serve({"/": route})
+        try:
+            r = fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(r["status"], 429)
+        self.assertTrue(r["rate_limited"])
+        self.assertEqual(len(calls), 2)
+
+    def test_retry_after_too_long_no_wait(self):
+        route, calls = self._counting([(429, {"Retry-After": "120"}, b"slow")])
+        base, stop = serve({"/": route})
+        try:
+            r = fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(r["status"], 429)
+        self.assertTrue(r["rate_limited"])
+        self.assertEqual(len(calls), 1)
+        self.assertFalse([s for s in self.sleeps if s >= 60])
+
+    def test_503_without_retry_after_not_retried(self):
+        route, calls = self._counting([(503, {}, b"down")])
+        base, stop = serve({"/": route})
+        try:
+            fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(len(calls), 1)
+
+    def test_challenge_503_not_retried(self):
+        route, calls = self._counting([(503, {"Retry-After": "1", "cf-mitigated": "challenge"}, b"x")])
+        base, stop = serve({"/": route})
+        try:
+            fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(len(calls), 1)
+
+    def test_interval_doubles_and_caps(self):
+        _c._note_rate_limited()
+        self.assertEqual(current_interval(), 2.0)
+        for _ in range(4):
+            _c._note_rate_limited()
+        self.assertEqual(current_interval(), 10.0)
