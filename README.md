@@ -1,5 +1,7 @@
 # geo-audit
 
+**简体中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
+
 一个遵循开放 Agent Skills 格式的 skill：只凭网址，从外部审计网站在一个或多个国家 / 语言市场的 AI 搜索可见度（ChatGPT、Perplexity、Google AI Overviews、Gemini、Copilot、豆包、DeepSeek、Naver AI Briefing、Le Chat 等），输出带论文证据强度的优化报告。报告语言跟随用户提问的语言。
 
 - 已建档市场：中国 `cn`、美国 `us`、日本 `jp`、韩国 `kr`、德国 `de`、法国 `fr`、西班牙语地区 `es`；其他市场走通用档案
