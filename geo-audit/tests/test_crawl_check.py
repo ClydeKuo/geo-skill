@@ -13,6 +13,7 @@ EXPECTED = {
     "PerplexityBot", "Perplexity-User", "Google-Extended", "Googlebot", "Bingbot",
     "Applebot-Extended", "Meta-ExternalAgent", "CCBot", "Amazonbot", "DuckAssistBot",
     "Bytespider", "Baiduspider", "Sogou web spider", "YisouSpider", "360Spider", "PetalBot",
+    "MistralAI-User", "MistralAI-Index", "MistralAI-Training",
 }
 SITE = "https://example.com/"
 HTML = {"Content-Type": "text/html; charset=utf-8"}
