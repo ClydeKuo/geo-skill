@@ -118,6 +118,11 @@ class SkillDocTests(unittest.TestCase):
         self.assertIn('"both"', doc)
         self.assertIn("cn,us", doc)
 
+    def test_proxy_address_not_in_report_rule(self):
+        doc = self.doc()
+        self.assertIn("不写代理地址", doc)
+        self.assertIn('"proxy_country"', doc)
+
     def test_no_private_info(self):
         files = [SKILL_MD] + [os.path.join(dp, f) for dp, _, fs in os.walk(REF) for f in fs]
         for path in files:

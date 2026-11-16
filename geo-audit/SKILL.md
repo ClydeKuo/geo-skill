@@ -88,8 +88,10 @@ description: Use when a client wants their website to show up, be cited, or be r
    ```json
    {"target": "", "markets": ["jp", "us"], "report_language": "ja", "brand": "", "business": "",
     "pages": {"jp": ["…"], "us": ["…"]}, "questions": {"jp": ["…"], "us": ["…"]},
-    "offsite_queries": {"jp": ["…"], "us": ["…"]}, "extra_hosts": ["…"], "date": "YYYY-MM-DD"}
+    "offsite_queries": {"jp": ["…"], "us": ["…"]}, "extra_hosts": ["…"],
+    "proxy_country": {"jp": "JP"}, "date": "YYYY-MM-DD"}
    ```
+   `proxy_country` 只记录用过哪个国家的出口（没用过写 `{}`），不记录代理地址。
 
 9. **写报告**：按 `references/report-template.md` 的结构，用报告语言书写。章节编号固定，不适用的写"不适用"。
 
@@ -106,7 +108,7 @@ description: Use when a client wants their website to show up, be cited, or be r
   - 在报告"审计范围与假设"中写明"站点限流，抽查页数已减少"。
 - 整次审计建议在 **45 分钟**内完成。超过时停止新增抓取，用已有数据写报告，并注明未完成的检查。
 - **禁止**为规避限流轮换代理或出口 IP，也不要改 UA、加速重试。
-- 只有两种情况可以用 `--proxy` 指定某个国家的出口：测试该目标国家的可达性；站点按访问地区返回不同内容。用了哪个国家的出口要写进报告。
+- 只有两种情况可以用 `--proxy` 指定某个国家的出口：测试该目标国家的可达性；站点按访问地区返回不同内容。用了哪个国家的出口要写进报告，**只写国家，不写代理地址**（代理地址属于审计方的内部信息，报告和 `audit.json` 都要交给客户）。
 
 ## 判读要点
 
