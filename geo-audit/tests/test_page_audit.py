@@ -73,6 +73,15 @@ class AuditUrlTests(unittest.TestCase):
         self.assertEqual(r["check"]["status"], "unknown")
         self.assertIsNone(r["result"])
 
+    def test_audit_url_challenge_unknown(self):
+        page = b"<html><head><title>Just a moment...</title></head><body>checking</body></html>"
+        base, stop = serve({"/": (200, {"Content-Type": "text/html"}, page)})
+        try:
+            r = audit_url(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertEqual(r["check"]["status"], "unknown")
+
     def test_audit_url_ok(self):
         base, stop = serve({"/": (200, {"Content-Type": "text/html; charset=utf-8"}, fixture_bytes("rich_page.html"))})
         try:

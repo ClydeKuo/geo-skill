@@ -38,7 +38,18 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(compare(raw, rendered)["check"]["status"], "warn")
 
     def test_compare_empty_rendered(self):
-        self.assertEqual(compare("<html></html>", "<html></html>")["ratio"], 1.0)
+        r = compare("<html></html>", "<html></html>")
+        self.assertEqual(r["ratio"], 1.0)
+        self.assertEqual(r["check"]["status"], "unknown")
+
+    def test_challenge_page_unknown(self):
+        page = b"<html><head><title>Just a moment...</title></head><body>checking</body></html>"
+        base, stop = serve({"/": (403, {"Content-Type": "text/html", "cf-mitigated": "challenge"}, page)})
+        try:
+            r = diff_url(base + "/", None, 5, browser="/usr/bin/true")
+        finally:
+            stop()
+        self.assertEqual(r["check"]["status"], "unknown")
 
 
 class BrowserTests(unittest.TestCase):

@@ -13,8 +13,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import (BROWSER_UA, base_argparser, count_words, emit, extract_text, fetch, item,  # noqa: E402
-                     polite_sleep)
+from _common import (BROWSER_UA, base_argparser, count_words, emit, extract_text, fetch,  # noqa: E402
+                     is_challenge, item, normalize_url, polite_sleep, safe_main)
 from page_audit import audit_html  # noqa: E402
 
 THRESHOLD = 0.5
@@ -70,7 +70,9 @@ def compare(raw_html, rendered_html):
     raw_heads = {h["text"] for h in audit_html(raw_html, "http://x/")["headings"]}
     js_only = [h["text"] for h in audit_html(rendered_html, "http://x/")["headings"]
                if h["text"] and h["text"] not in raw_heads]
-    if ratio < THRESHOLD:
+    if rendered_words == 0:
+        check = item("unknown", ratio, "渲染后也没有正文，无法判断（可能被拦截或页面为空）")
+    elif ratio < THRESHOLD:
         check = item("fail", ratio, "不执行 JS 时只能看到 %.0f%% 正文：主流 AI 爬虫基本看不到本页内容（P0）" % (ratio * 100))
     elif ratio < WARN_THRESHOLD:
         check = item("warn", ratio, "不执行 JS 时缺失约 %.0f%% 正文" % ((1 - ratio) * 100))
@@ -87,6 +89,9 @@ def diff_url(url, proxy=None, timeout=10, browser=None):
         out["check"] = item("unknown", None, "未找到 Chrome/Chromium，未检测渲染差异")
         return out
     raw = fetch(url, proxy=proxy, timeout=timeout)
+    if is_challenge(raw):
+        out["check"] = item("unknown", None, "审计机被 WAF/CDN 挑战页拦截，未检测渲染差异")
+        return out
     if raw["status"] != 200 or raw["text"] is None:
         out["check"] = item("unknown", None, "原始页面不可用（%s）" % (raw["error"] or raw["status"]))
         return out
@@ -106,9 +111,9 @@ def main():
     pages = []
     for u in [args.url] + args.more_urls:
         polite_sleep()
-        pages.append(diff_url(u, args.proxy, args.timeout, browser))
+        pages.append(diff_url(normalize_url(u), args.proxy, args.timeout, browser))
     emit({"browser": browser, "pages": pages}, args.out)
 
 
 if __name__ == "__main__":
-    main()
+    safe_main(main)

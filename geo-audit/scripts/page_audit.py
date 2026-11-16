@@ -11,8 +11,8 @@ import urllib.parse
 from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import (base_argparser, count_words, emit, extract_text, fetch, item,  # noqa: E402
-                     polite_sleep, registrable_domain)
+from _common import (base_argparser, count_words, emit, extract_text, fetch, is_challenge,  # noqa: E402
+                     item, normalize_url, polite_sleep, registrable_domain, safe_main)
 
 _NUM_PATTERNS = [
     r"\d+(?:\.\d+)?\s*%",                                                     # 百分比
@@ -180,7 +180,9 @@ def audit_html(html, url):
 def audit_url(url, proxy=None, timeout=10):
     r = fetch(url, proxy=proxy, timeout=timeout)
     out = {"url": url, "final_url": r["final_url"], "status": r["status"], "result": None}
-    if r["status"] != 200:
+    if is_challenge(r):
+        out["check"] = item("unknown", None, "审计机被 WAF/CDN 挑战页拦截，未评估内容")
+    elif r["status"] != 200:
         out["check"] = item("unknown", None, "页面不可用（%s），未评估内容" % (r["error"] or r["status"]))
     elif r["content_type"] not in ("text/html", "application/xhtml+xml") or r["text"] is None:
         out["check"] = item("unknown", r["content_type"], "非 HTML 页面（%s），未评估内容" % r["content_type"])
@@ -198,9 +200,9 @@ def main():
     pages = []
     for u in [args.url] + args.more_urls:
         polite_sleep()
-        pages.append(audit_url(u, args.proxy, args.timeout))
+        pages.append(audit_url(normalize_url(u), args.proxy, args.timeout))
     emit({"pages": pages}, args.out)
 
 
 if __name__ == "__main__":
-    main()
+    safe_main(main)

@@ -60,7 +60,68 @@ class RobotsTests(unittest.TestCase):
             self.assertIn(c["market"], {"global", "cn"})
 
 
+class RFC9309Tests(unittest.TestCase):
+    def v(self, text, bot="GPTBot"):
+        return robots_verdicts(200, text, SITE)["bots"][bot]
+
+    def test_wildcard_path_blocks(self):
+        self.assertFalse(self.v("User-agent: GPTBot\nDisallow: /*\n")["allowed"])
+
+    def test_bare_star_blocks(self):
+        self.assertFalse(self.v("User-agent: GPTBot\nDisallow: *\n")["allowed"])
+
+    def test_allow_dollar_homepage(self):
+        self.assertTrue(self.v("User-agent: GPTBot\nDisallow: /\nAllow: /$\n")["allowed"])
+
+    def test_tie_allow_wins(self):
+        self.assertTrue(self.v("User-agent: GPTBot\nDisallow: /\nAllow: /\n")["allowed"])
+
+    def test_groups_merged(self):
+        text = "User-agent: GPTBot\nDisallow: /private\n\nUser-agent: GPTBot\nDisallow: /\n"
+        self.assertFalse(self.v(text)["allowed"])
+
+    def test_bom_ignored(self):
+        r = self.v("\ufeffUser-agent: *\nDisallow: /\n")
+        self.assertFalse(r["allowed"])
+        self.assertEqual(r["matched_group"], "wildcard")
+
+    def test_space_before_colon(self):
+        r = self.v("User-agent : GPTBot\nDisallow : /\n")
+        self.assertFalse(r["allowed"])
+        self.assertEqual(r["matched_group"], "specific")
+
+    def test_specific_group_overrides_wildcard(self):
+        r = self.v("User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nAllow: /\n")
+        self.assertTrue(r["allowed"])
+        self.assertEqual(r["matched_group"], "specific")
+
+    def test_applebot_group_not_applebot_extended(self):
+        r = self.v("User-agent: Applebot\nDisallow: /\n", bot="Applebot-Extended")
+        self.assertTrue(r["allowed"])
+
+    def test_multiple_agents_one_group(self):
+        text = "User-agent: CCBot\nUser-agent: GPTBot\nDisallow: /\n"
+        self.assertFalse(self.v(text)["allowed"])
+        self.assertFalse(self.v(text, bot="CCBot")["allowed"])
+
+    def test_unreachable_statuses(self):
+        for status in (None, 429, 500, 503):
+            r = robots_verdicts(status, None, SITE)
+            self.assertEqual(r["source"], "unreachable", status)
+            self.assertIsNone(r["bots"]["GPTBot"]["allowed"])
+
+
 class SitemapTests(unittest.TestCase):
+    def test_relative_sitemap_and_gbk(self):
+        body = ('<?xml version="1.0" encoding="GBK"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                '<url><loc>https://e.com/中文</loc></url></urlset>').encode("gbk")
+        base, stop = serve({"/sm.xml": (200, {"Content-Type": "application/xml"}, body)})
+        try:
+            r = parse_sitemaps("Sitemap: /sm.xml\n", lambda u: fetch(u), origin=base)
+        finally:
+            stop()
+        self.assertEqual(r["urls"], ["https://e.com/中文"])
+
     def test_sitemap_index_recursion(self):
         holder = {}
 
@@ -145,6 +206,16 @@ class UABlockTests(unittest.TestCase):
         self.assertEqual(r["OAI-SearchBot"]["status"], "warn")
 
 
+class UANetworkErrorTests(unittest.TestCase):
+    def test_ai_ua_timeout_is_unknown(self):
+        def fetcher(ua):
+            if "Windows" in ua:
+                return {"status": 200, "text": "<html>ok</html>", "headers": {}}
+            return {"status": None, "text": None, "headers": {}, "error": "timeout"}
+        r = ua_block_check("http://x/", fetcher)
+        self.assertEqual(r["OAI-SearchBot"]["status"], "unknown")
+
+
 class CloudflareTests(unittest.TestCase):
     """正常页面里 Cloudflare 注入的 challenge-platform 脚本不能被当成挑战页。"""
 
@@ -185,6 +256,45 @@ class CloudflareTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
+    def test_robots_octet_stream(self):
+        base, stop = serve({"/": (200, HTML, b"<html><body>hi</body></html>"),
+                            "/robots.txt": (200, {"Content-Type": "application/octet-stream"},
+                                            b"User-agent: GPTBot\nDisallow: /\n")})
+        try:
+            r = run(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertEqual(r["ai_crawlers"]["GPTBot"]["status"], "warn")
+        self.assertEqual(r["ai_crawlers"]["OAI-SearchBot"]["status"], "pass")
+
+    def test_robots_503_unknown(self):
+        base, stop = serve({"/": (200, HTML, b"<html><body>hi</body></html>"),
+                            "/robots.txt": (503, TXT, b"down")})
+        try:
+            r = run(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertEqual(r["ai_crawlers"]["OAI-SearchBot"]["status"], "unknown")
+
+    def test_homepage_challenge_is_unknown_not_down(self):
+        challenge = (403, dict(HTML, **{"cf-mitigated": "challenge"}), b"<html><title>Just a moment...</title></html>")
+        base, stop = serve({"/": challenge, "/robots.txt": (200, TXT, b"User-agent: *\nAllow: /\n")})
+        try:
+            r = run(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertEqual(r["homepage"]["status"], "unknown")
+        self.assertEqual(r["ua_blocking"]["OAI-SearchBot"]["status"], "warn")
+
+    def test_meta_robots_max_image_preview_none(self):
+        page = b'<html><head><meta name="robots" content="index, follow, max-image-preview:none"></head></html>'
+        base, stop = serve({"/": (200, HTML, page), "/robots.txt": (200, TXT, b"User-agent: *\nAllow: /\n")})
+        try:
+            r = run(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertEqual(r["meta_robots"]["status"], "pass")
+
     def test_run_uses_final_origin(self):
         base2, stop2 = serve({"/": (200, HTML, b"<html><body>site2</body></html>"),
                               "/robots.txt": (200, TXT, b"User-agent: GPTBot\nDisallow: /\n")})

@@ -4,7 +4,12 @@ import unittest
 from helpers import fixture_bytes, serve
 
 import _common
-from _common import MAX_BYTES, count_words, decode_body, extract_text, fetch
+import json
+import os
+import subprocess
+import sys
+
+from _common import MAX_BYTES, count_words, decode_body, extract_text, fetch, normalize_url
 
 
 class DecodeTests(unittest.TestCase):
@@ -61,7 +66,41 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(r["content_type"], "application/pdf")
 
 
+class RobustnessTests(unittest.TestCase):
+    def test_normalize_url(self):
+        self.assertEqual(normalize_url("example.com"), "https://example.com")
+        self.assertEqual(normalize_url(" http://a.com/x "), "http://a.com/x")
+
+    def test_fetch_bad_url_no_raise(self):
+        r = fetch("example.com")
+        self.assertIsNone(r["status"])
+        self.assertTrue(r["error"])
+
+    def test_fetch_non_ascii_path(self):
+        base, stop = serve({"/%E8%B7%AF%E5%BE%84": (200, {"Content-Type": "text/html"}, b"<p>ok</p>")})
+        try:
+            r = fetch(base + "/路径")
+        finally:
+            stop()
+        self.assertEqual(r["status"], 200)
+
+    def test_cli_never_tracebacks(self):
+        scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        for script in ("crawl_check.py", "page_audit.py", "render_diff.py"):
+            proc = subprocess.run([sys.executable, os.path.join(scripts, script), "http://[bad", "--timeout", "2"],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, script + proc.stderr)
+            self.assertNotIn("Traceback", proc.stderr, script)
+            json.loads(proc.stdout)
+
+
 class TextTests(unittest.TestCase):
+    def test_extract_text_keeps_article_header(self):
+        html = "<article><header><h1>Title</h1><p>By Alice, 2024-01-01</p></header><p>body</p></article>"
+        text = extract_text(html)
+        self.assertIn("2024-01-01", text)
+        self.assertIn("Title", text)
+
     def test_extract_text_strips_chrome(self):
         text = extract_text(fixture_bytes("article.html").decode("utf-8"))
         self.assertIn("BODY_PARAGRAPH", text)

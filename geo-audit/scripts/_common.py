@@ -9,6 +9,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from html.parser import HTMLParser
@@ -88,22 +89,49 @@ def _is_text(content_type):
     return ct.startswith("text/") or "html" in ct or "xml" in ct or "json" in ct or ct == ""
 
 
-def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10):
-    """GET 一个 URL。HTTP 错误码照实返回；网络错误 status=None。"""
-    handlers = []
-    if proxy:
-        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
-    opener = urllib.request.build_opener(*handlers)
-    req = urllib.request.Request(url, headers={
-        "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    })
+def normalize_url(url):
+    """补全协议：用户常输入 example.com。"""
+    url = (url or "").strip()
+    if not re.match(r"^[A-Za-z][A-Za-z0-9+.\-]*://", url):
+        url = "https://" + url
+    return url
+
+
+def _ascii_url(url):
+    """把中文路径 / IDN 主机名转换为可请求的 ASCII URL。"""
+    p = urllib.parse.urlsplit(url)
+    host = p.hostname or ""
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    netloc = host + (":%d" % p.port if p.port else "")
+    if p.username:
+        netloc = "%s@%s" % (p.username + (":" + p.password if p.password else ""), netloc)
+    path = urllib.parse.quote(p.path, safe="/%:@!$&'()*+,;=-._~")
+    query = urllib.parse.quote(p.query, safe="=&%:@!$'()*+,;/?-._~")
+    return urllib.parse.urlunsplit((p.scheme, netloc, path, query, ""))
+
+
+def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False):
+    """GET 一个 URL。HTTP 错误码照实返回；网络错误或非法 URL 时 status=None、error 为原因，不抛异常。
+
+    force_text=True 时不论 Content-Type 都解码为文本（用于 robots.txt 等）。
+    """
     result = {"url": url, "final_url": url, "status": None, "headers": {}, "content_type": "",
               "text": None, "bytes": 0, "elapsed_ms": 0, "truncated": False, "error": None}
     start = time.monotonic()
     try:
+        handlers = []
+        if proxy:
+            handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+        opener = urllib.request.build_opener(*handlers)
+        req = urllib.request.Request(_ascii_url(url), headers={
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        })
         try:
             resp = opener.open(req, timeout=timeout)
         except urllib.error.HTTPError as e:
@@ -132,12 +160,13 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10):
             body = gzip.decompress(body)
         except (OSError, EOFError):
             is_gzip_file = False
-    if _is_text(ct) or is_gzip_file:
+    if force_text or _is_text(ct) or is_gzip_file:
         result["text"] = decode_body(body, ct)
     return result
 
 
-_SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "nav", "footer", "header", "textarea"}
+_SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "nav", "textarea"}
+_PAGE_CHROME = {"header", "footer"}  # 只在 main/article 之外才视为页面外壳
 _BLOCK_TAGS = {"p", "div", "section", "article", "main", "li", "ul", "ol", "table", "tr", "td", "th",
                "h1", "h2", "h3", "h4", "h5", "h6", "br", "blockquote", "pre", "dd", "dt", "figcaption"}
 _VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
@@ -148,9 +177,12 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts = []
         self.skip_stack = []
+        self.content_depth = 0
 
     def handle_starttag(self, tag, attrs):
-        if tag in _SKIP_TAGS:
+        if tag in ("main", "article") and not self.skip_stack:
+            self.content_depth += 1
+        if tag in _SKIP_TAGS or (tag in _PAGE_CHROME and self.content_depth == 0):
             self.skip_stack.append(tag)
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
@@ -158,6 +190,8 @@ class _TextExtractor(HTMLParser):
     def handle_endtag(self, tag):
         if self.skip_stack and tag == self.skip_stack[-1]:
             self.skip_stack.pop()
+        elif tag in ("main", "article") and not self.skip_stack and self.content_depth:
+            self.content_depth -= 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
@@ -216,3 +250,28 @@ def registrable_domain(host):
     if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_SUFFIX:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
+
+
+# 只匹配挑战页/验证页本身的特征。注意：Cloudflare 会在正常页面注入
+# /cdn-cgi/challenge-platform/scripts/jsd/main.js，不能把 "challenge-platform" 当挑战特征。
+_CHALLENGE_TITLE = re.compile(
+    r"<title>\s*(?:just a moment|attention required|access denied|请稍候|安全验证|人机验证|验证码)", re.I)
+_CHALLENGE_BODY = re.compile(r"_cf_chl_opt|cf-chl-widget|challenges\.cloudflare\.com/turnstile", re.I)
+
+
+def is_challenge(resp):
+    """响应是否为 WAF / CDN 的挑战或验证页。"""
+    if "challenge" in (resp.get("headers") or {}).get("cf-mitigated", "").lower():
+        return True
+    text = resp.get("text") or ""
+    return bool(_CHALLENGE_TITLE.search(text) or _CHALLENGE_BODY.search(text))
+
+
+def safe_main(main):
+    """脚本入口保护：任何未预料的异常都输出 unknown JSON 并以 0 退出，不打印调用栈。"""
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        emit({"error": item("unknown", None, "脚本内部错误：%s: %s" % (type(e).__name__, e))})
