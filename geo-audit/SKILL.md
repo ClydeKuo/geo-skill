@@ -11,7 +11,7 @@ description: Use when a client wants their website to show up, be cited, or be r
 
 **核心原则**：按证据强度分配精力。最大的杠杆依次是**能被抓取 → 能被检索 → 能被吸收 → 站外有人提及**，而不是改写文案的套路。每条建议都必须引用 `references/evidence.md` 的证据编号和强度。
 
-本 skill 遵循开放的 Agent Skills 格式，可在 Claude Code、Codex、Cursor 等工具中使用。下文所有路径都相对于**本 SKILL.md 所在的目录**（记为 `<skill>`）。
+本 skill 遵循开放的 Agent Skills 格式，可在 Claude Code、Codex、Cursor 等工具中使用，用 `bash <skill>/install.sh` 安装到各工具的 skill 目录。下文所有路径都相对于**本 SKILL.md 所在的目录**（记为 `<skill>`）。
 
 ## 何时不用
 
