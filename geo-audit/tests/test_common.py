@@ -68,6 +68,12 @@ class TextTests(unittest.TestCase):
         for junk in ("HEADER_TEXT", "NAV_TEXT", "FOOTER_TEXT", "NOSCRIPT_TEXT", "NAVSECRET", "color:red"):
             self.assertNotIn(junk, text)
 
+    def test_extract_text_skips_textarea(self):
+        html = '<p>正文</p><textarea style="display:none">&lt;style&gt;body{color:red}&lt;/style&gt;</textarea>'
+        text = extract_text(html)
+        self.assertIn("正文", text)
+        self.assertNotIn("color", text)
+
     def test_count_words_mixed(self):
         self.assertEqual(count_words("GEO 优化指南 for AI search"), 8)
 

@@ -137,7 +137,7 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10):
     return result
 
 
-_SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "nav", "footer", "header"}
+_SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "nav", "footer", "header", "textarea"}
 _BLOCK_TAGS = {"p", "div", "section", "article", "main", "li", "ul", "ol", "table", "tr", "td", "th",
                "h1", "h2", "h3", "h4", "h5", "h6", "br", "blockquote", "pre", "dd", "dt", "figcaption"}
 _VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
