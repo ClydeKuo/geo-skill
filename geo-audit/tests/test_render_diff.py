@@ -83,6 +83,31 @@ class BrowserTests(unittest.TestCase):
              mock.patch("tempfile.TemporaryDirectory.cleanup", side_effect=OSError(39, "Directory not empty")):
             self.assertIn("dom", render("http://x/", "/usr/bin/google-chrome", None, 5))
 
+    def test_render_passes_lang(self):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return mock.Mock(returncode=0, stdout=b"<html><body>dom</body></html>")
+
+        with mock.patch("render_diff.subprocess.run", side_effect=fake_run):
+            render("http://x/", "/usr/bin/google-chrome", None, 5, lang="ja-JP")
+        self.assertIn("--lang=ja-JP", captured["cmd"])
+
+    def test_diff_url_lang_header(self):
+        seen = []
+
+        def page(h):
+            seen.append(h.get("Accept-Language", ""))
+            return 200, {"Content-Type": "text/html"}, b"<p>x</p>"
+
+        base, stop = serve({"/": page})
+        try:
+            diff_url(base + "/", None, 5, browser="/usr/bin/true", lang="de-DE")
+        finally:
+            stop()
+        self.assertTrue(seen and seen[0].startswith("de-DE"))
+
     @unittest.skipUnless(find_browser(), "no browser installed")
     def test_render_real_browser(self):
         page = (b"<html><body><div id='a'></div><script>"

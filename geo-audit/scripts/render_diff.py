@@ -40,7 +40,7 @@ def find_browser():
     return found[-1] if found else None
 
 
-def render(url, browser, proxy=None, timeout=10):
+def render(url, browser, proxy=None, timeout=10, lang=None):
     """用 headless 浏览器渲染页面并返回 DOM；失败返回 None。"""
     # Chrome 退出后子进程可能仍在写 profile，清理失败不能影响结果
     profile = tempfile.mkdtemp(prefix="geo-chrome-")
@@ -52,6 +52,8 @@ def render(url, browser, proxy=None, timeout=10):
             "--virtual-time-budget=8000", "--dump-dom", url]
     if proxy:
         cmd.insert(1, "--proxy-server=%s" % proxy)
+    if lang:
+        cmd.insert(1, "--lang=%s" % lang)
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 20)
     except (subprocess.TimeoutExpired, OSError):
@@ -82,20 +84,20 @@ def compare(raw_html, rendered_html):
             "js_only_headings": js_only, "check": check}
 
 
-def diff_url(url, proxy=None, timeout=10, browser=None):
+def diff_url(url, proxy=None, timeout=10, browser=None, lang=None):
     browser = browser or find_browser()
     out = {"url": url}
     if not browser:
         out["check"] = item("unknown", None, "未找到 Chrome/Chromium，未检测渲染差异")
         return out
-    raw = fetch(url, proxy=proxy, timeout=timeout)
+    raw = fetch(url, proxy=proxy, timeout=timeout, lang=lang)
     if is_challenge(raw):
         out["check"] = item("unknown", None, "审计机被 WAF/CDN 挑战页拦截，未检测渲染差异")
         return out
     if raw["status"] != 200 or raw["text"] is None:
         out["check"] = item("unknown", None, "原始页面不可用（%s）" % (raw["error"] or raw["status"]))
         return out
-    rendered = render(raw["final_url"], browser, proxy, timeout)
+    rendered = render(raw["final_url"], browser, proxy, timeout, lang=lang)
     if rendered is None:
         out["check"] = item("unknown", None, "浏览器渲染失败")
         return out
@@ -106,12 +108,13 @@ def diff_url(url, proxy=None, timeout=10, browser=None):
 def main():
     ap = base_argparser(__doc__.splitlines()[0])
     ap.add_argument("more_urls", nargs="*")
+    ap.add_argument("--lang", default=None, help="请求与渲染语言（BCP 47），如 ja-JP")
     args = ap.parse_args()
     browser = find_browser()
     pages = []
     for u in [args.url] + args.more_urls:
         polite_sleep()
-        pages.append(diff_url(normalize_url(u), args.proxy, args.timeout, browser))
+        pages.append(diff_url(normalize_url(u), args.proxy, args.timeout, browser, lang=args.lang))
     emit({"browser": browser, "pages": pages}, args.out)
 
 

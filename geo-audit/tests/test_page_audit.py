@@ -63,6 +63,47 @@ class AuditHtmlTests(unittest.TestCase):
         self.assertEqual(r["jsonld_types"], [])
 
 
+class HreflangFieldTests(unittest.TestCase):
+    def test_hreflang_field(self):
+        r = audit_html('<head><link rel="alternate" hreflang="JA" href="/ja/"></head><p>x</p>', URL)
+        self.assertEqual(r["hreflang"], {"ja": "https://www.lock-example.com.cn/ja/"})
+
+
+class SaveHtmlTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_save_html(self):
+        import os
+        page = fixture_bytes("rich_page.html")
+        base, stop = serve({"/": (200, {"Content-Type": "text/html; charset=utf-8"}, page),
+                            "/pages/About%20Us": (200, {"Content-Type": "text/html"}, b"<p>about</p>")})
+        try:
+            r0 = audit_url(base + "/", None, 5, save_dir=self.tmp, index=0)
+            r1 = audit_url(base + "/pages/About Us", None, 5, save_dir=self.tmp, index=1)
+        finally:
+            stop()
+        self.assertEqual(os.path.basename(r0["saved_html"]), "00-home.html")
+        self.assertTrue(os.path.basename(r1["saved_html"]).startswith("01-pages-about-us"))
+        with open(r0["saved_html"], encoding="utf-8") as f:
+            self.assertIn("智能门锁选购指南", f.read())
+
+    def test_save_html_skipped_on_unknown(self):
+        import os
+        base, stop = serve({"/a.pdf": (200, {"Content-Type": "application/pdf"}, b"%PDF")})
+        try:
+            r = audit_url(base + "/a.pdf", None, 5, save_dir=self.tmp, index=0)
+        finally:
+            stop()
+        self.assertIsNone(r["saved_html"])
+        self.assertEqual(os.listdir(self.tmp), [])
+
+
 class AuditUrlTests(unittest.TestCase):
     def test_audit_url_pdf_unknown(self):
         base, stop = serve({"/a.pdf": (200, {"Content-Type": "application/pdf"}, b"%PDF-1.4")})

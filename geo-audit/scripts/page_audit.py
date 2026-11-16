@@ -46,6 +46,7 @@ class _PageParser(HTMLParser):
         self._in_rel_author = False
         self.time_datetime = None
         self.canonical = None
+        self.hreflang = {}
         self._chrome = 0      # 处于 nav / 页头 / 页脚中的深度
         self._content = 0     # 处于 main / article 中的深度
         self._chrome_stack = []
@@ -60,6 +61,9 @@ class _PageParser(HTMLParser):
             self._chrome_stack.append(tag)
         if tag == "link" and "canonical" in a.get("rel", "").lower().split() and self.canonical is None:
             self.canonical = a.get("href")
+        if (tag == "link" and "alternate" in a.get("rel", "").lower().split()
+                and a.get("hreflang") and a.get("href")):
+            self.hreflang.setdefault(a["hreflang"].lower(), a["href"])
         if tag == "html" and a.get("lang"):
             self.lang = a["lang"]
         elif tag == "title" and self.title is None:
@@ -156,6 +160,7 @@ def audit_html(html, url):
     return {
         "title": p.title,
         "canonical": urllib.parse.urljoin(url, p.canonical) if p.canonical else None,
+        "hreflang": {k: urllib.parse.urljoin(url, v) for k, v in p.hreflang.items()},
         "meta_description": p.meta.get("description"),
         "lang": p.lang,
         "h1_count": sum(1 for h in p.headings if h["level"] == 1),
@@ -177,9 +182,15 @@ def audit_html(html, url):
     }
 
 
-def audit_url(url, proxy=None, timeout=10):
-    r = fetch(url, proxy=proxy, timeout=timeout)
-    out = {"url": url, "final_url": r["final_url"], "status": r["status"], "result": None}
+def _slug(url):
+    path = urllib.parse.unquote(urllib.parse.urlsplit(url).path)
+    slug = re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-")[:60].strip("-")
+    return slug or "home"
+
+
+def audit_url(url, proxy=None, timeout=10, lang=None, save_dir=None, index=0):
+    r = fetch(url, proxy=proxy, timeout=timeout, lang=lang)
+    out = {"url": url, "final_url": r["final_url"], "status": r["status"], "result": None, "saved_html": None}
     if is_challenge(r):
         out["check"] = item("unknown", None, "审计机被 WAF/CDN 挑战页拦截，未评估内容")
     elif r["status"] != 200:
@@ -190,17 +201,26 @@ def audit_url(url, proxy=None, timeout=10):
         out["result"] = audit_html(r["text"], r["final_url"])
         detail = "已截断到 5MB 分析" if r["truncated"] else "已分析"
         out["check"] = item("pass", None, detail)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+            path = os.path.join(save_dir, "%02d-%s.html" % (index, _slug(url)))
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(r["text"])
+            out["saved_html"] = path
     return out
 
 
 def main():
     ap = base_argparser(__doc__.splitlines()[0])
     ap.add_argument("more_urls", nargs="*")
+    ap.add_argument("--save-html", default=None, help="把原始 HTML 保存到该目录")
+    ap.add_argument("--lang", default=None, help="请求语言（BCP 47），如 ja-JP")
     args = ap.parse_args()
     pages = []
-    for u in [args.url] + args.more_urls:
+    for i, u in enumerate([args.url] + args.more_urls):
         polite_sleep()
-        pages.append(audit_url(normalize_url(u), args.proxy, args.timeout))
+        pages.append(audit_url(normalize_url(u), args.proxy, args.timeout, lang=args.lang,
+                               save_dir=args.save_html, index=i))
     emit({"pages": pages}, args.out)
 
 
