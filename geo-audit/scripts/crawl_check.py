@@ -15,62 +15,70 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import (BROWSER_UA, base_argparser, emit, extract_text, fetch, is_challenge,  # noqa: E402
                      item, normalize_url, polite_sleep, registrable_domain, safe_main)
 
+MARKETS = ("cn", "us", "jp", "kr", "de", "fr", "es")
+MARKET_LANG = {"cn": "zh-CN", "us": "en-US", "jp": "ja-JP", "kr": "ko-KR", "de": "de-DE", "fr": "fr-FR", "es": "es"}
+
 # 名单更新日期：2026-11-16（与 references/ai-crawlers.md 同步维护）
+# markets: ["all"] 表示全球通用，否则为相关市场代码
 # purpose: training=模型训练采集；search=AI 搜索/检索索引；user=用户提问时实时抓取
 # ua_full 为 None 表示该名称只是 robots.txt 控制标记，没有独立的抓取 UA
 AI_CRAWLERS = [
-    {"name": "GPTBot", "ua_token": "GPTBot", "owner": "OpenAI", "market": "global", "purpose": "training",
+    {"name": "GPTBot", "ua_token": "GPTBot", "owner": "OpenAI", "markets": ["all"], "purpose": "training",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)"},
-    {"name": "OAI-SearchBot", "ua_token": "OAI-SearchBot", "owner": "OpenAI (ChatGPT 搜索)", "market": "global",
+    {"name": "OAI-SearchBot", "ua_token": "OAI-SearchBot", "owner": "OpenAI (ChatGPT 搜索)", "markets": ["all"],
      "purpose": "search",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot"},
-    {"name": "ChatGPT-User", "ua_token": "ChatGPT-User", "owner": "OpenAI", "market": "global", "purpose": "user",
+    {"name": "ChatGPT-User", "ua_token": "ChatGPT-User", "owner": "OpenAI", "markets": ["all"], "purpose": "user",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot"},
-    {"name": "ClaudeBot", "ua_token": "ClaudeBot", "owner": "Anthropic", "market": "global", "purpose": "training",
+    {"name": "ClaudeBot", "ua_token": "ClaudeBot", "owner": "Anthropic", "markets": ["all"], "purpose": "training",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"},
-    {"name": "Claude-SearchBot", "ua_token": "Claude-SearchBot", "owner": "Anthropic", "market": "global",
+    {"name": "Claude-SearchBot", "ua_token": "Claude-SearchBot", "owner": "Anthropic", "markets": ["all"],
      "purpose": "search",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +https://www.anthropic.com)"},
-    {"name": "Claude-User", "ua_token": "Claude-User", "owner": "Anthropic", "market": "global", "purpose": "user",
+    {"name": "Claude-User", "ua_token": "Claude-User", "owner": "Anthropic", "markets": ["all"], "purpose": "user",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +https://www.anthropic.com)"},
-    {"name": "PerplexityBot", "ua_token": "PerplexityBot", "owner": "Perplexity", "market": "global",
+    {"name": "PerplexityBot", "ua_token": "PerplexityBot", "owner": "Perplexity", "markets": ["all"],
      "purpose": "search",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"},
-    {"name": "Perplexity-User", "ua_token": "Perplexity-User", "owner": "Perplexity", "market": "global",
+    {"name": "Perplexity-User", "ua_token": "Perplexity-User", "owner": "Perplexity", "markets": ["all"],
      "purpose": "user",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user)"},
-    {"name": "Google-Extended", "ua_token": "Google-Extended", "owner": "Google (Gemini 训练)", "market": "global",
+    {"name": "Google-Extended", "ua_token": "Google-Extended", "owner": "Google (Gemini 训练)", "markets": ["all"],
      "purpose": "training", "ua_full": None},
-    {"name": "Googlebot", "ua_token": "Googlebot", "owner": "Google (搜索 / AI Overview)", "market": "global",
+    {"name": "Googlebot", "ua_token": "Googlebot", "owner": "Google (搜索 / AI Overview)", "markets": ["all"],
      "purpose": "search", "ua_full": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
     {"name": "Bingbot", "ua_token": "Bingbot", "owner": "Microsoft (Bing / Copilot，亦供 ChatGPT 部分检索)",
-     "market": "global", "purpose": "search",
+     "markets": ["all"], "purpose": "search",
      "ua_full": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"},
     {"name": "Applebot-Extended", "ua_token": "Applebot-Extended", "owner": "Apple (Apple Intelligence 训练)",
-     "market": "global", "purpose": "training", "ua_full": None},
-    {"name": "Meta-ExternalAgent", "ua_token": "Meta-ExternalAgent", "owner": "Meta", "market": "global",
+     "markets": ["all"], "purpose": "training", "ua_full": None},
+    {"name": "Meta-ExternalAgent", "ua_token": "Meta-ExternalAgent", "owner": "Meta", "markets": ["all"],
      "purpose": "training",
      "ua_full": "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"},
-    {"name": "CCBot", "ua_token": "CCBot", "owner": "Common Crawl", "market": "global", "purpose": "training",
+    {"name": "CCBot", "ua_token": "CCBot", "owner": "Common Crawl", "markets": ["all"], "purpose": "training",
      "ua_full": "CCBot/2.0 (https://commoncrawl.org/faq/)"},
-    {"name": "Amazonbot", "ua_token": "Amazonbot", "owner": "Amazon (Alexa / Rufus)", "market": "global",
+    {"name": "Amazonbot", "ua_token": "Amazonbot", "owner": "Amazon (Alexa / Rufus)", "markets": ["all"],
      "purpose": "search",
      "ua_full": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot) Chrome/119.0.6045.214 Safari/537.36"},
-    {"name": "DuckAssistBot", "ua_token": "DuckAssistBot", "owner": "DuckDuckGo", "market": "global",
+    {"name": "DuckAssistBot", "ua_token": "DuckAssistBot", "owner": "DuckDuckGo", "markets": ["all"],
      "purpose": "search", "ua_full": "DuckAssistBot/1.2; (+http://duckduckgo.com/duckassistbot.html)"},
-    {"name": "Bytespider", "ua_token": "Bytespider", "owner": "字节跳动 (豆包)", "market": "cn", "purpose": "training",
+    {"name": "Bytespider", "ua_token": "Bytespider", "owner": "字节跳动 (豆包)", "markets": ["cn"], "purpose": "training",
      "ua_full": "Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)"},
-    {"name": "Baiduspider", "ua_token": "Baiduspider", "owner": "百度 (搜索 / 文心)", "market": "cn", "purpose": "search",
+    {"name": "Baiduspider", "ua_token": "Baiduspider", "owner": "百度 (搜索 / 文心)", "markets": ["cn"], "purpose": "search",
      "ua_full": "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"},
-    {"name": "Sogou web spider", "ua_token": "Sogou web spider", "owner": "搜狗 (腾讯)", "market": "cn",
+    {"name": "Sogou web spider", "ua_token": "Sogou web spider", "owner": "搜狗 (腾讯)", "markets": ["cn"],
      "purpose": "search",
      "ua_full": "Sogou web spider/4.0(+http://www.sogou.com/docs/help/webmasters.htm#07)"},
-    {"name": "YisouSpider", "ua_token": "YisouSpider", "owner": "神马 / 夸克 (阿里)", "market": "cn", "purpose": "search",
+    {"name": "YisouSpider", "ua_token": "YisouSpider", "owner": "神马 / 夸克 (阿里)", "markets": ["cn"], "purpose": "search",
      "ua_full": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.81 YisouSpider/5.0 Safari/537.36"},
-    {"name": "360Spider", "ua_token": "360Spider", "owner": "360 搜索", "market": "cn", "purpose": "search",
+    {"name": "360Spider", "ua_token": "360Spider", "owner": "360 搜索", "markets": ["cn"], "purpose": "search",
      "ua_full": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36; 360Spider"},
-    {"name": "PetalBot", "ua_token": "PetalBot", "owner": "华为 (花瓣搜索 / 小艺)", "market": "cn", "purpose": "search",
+    {"name": "PetalBot", "ua_token": "PetalBot", "owner": "华为 (花瓣搜索 / 小艺)", "markets": ["cn"], "purpose": "search",
      "ua_full": "Mozilla/5.0 (compatible;PetalBot;+https://webmaster.petalsearch.com/site/petalbot)"},
+    {"name": "Yeti", "ua_token": "Yeti", "owner": "Naver (搜索 / AI Briefing)", "markets": ["kr"], "purpose": "search",
+     "ua_full": "Mozilla/5.0 (compatible; Yeti/1.1; +https://naver.me/spd)"},
+    {"name": "Daum", "ua_token": "Daum", "owner": "Daum (原 Kakao 运营的搜索)", "markets": ["kr"], "purpose": "search",
+     "ua_full": "Mozilla/5.0 (compatible; Daum/4.1; +http://cs.daum.net/faq/15/4118.html?faqId=28966)"},
 ]
 
 _ICP = re.compile(r"[\u4e00-\u9fa5]ICP[备证]\d+号(?:-\d+)?")
@@ -172,15 +180,30 @@ def robots_verdicts(robots_status, robots_text, site_url, challenged=False):
     return {"source": source, "detail": detail, "bots": bots}
 
 
-def _xml_locs(text):
-    """返回 (根标签名, [loc...])。"""
+def _xml_parse(text):
+    """返回 (根标签名, [loc...], [alternate...])；alternate 为 {"loc","lang","href"}。"""
     body = re.sub(r"^\s*<\?xml[^>]*\?>", "", text or "")  # 文本已解码，去掉 encoding 声明
     try:
         root = ET.fromstring(body.strip())
     except (ET.ParseError, ValueError):
-        return None, []
-    locs = [el.text.strip() for el in root.iter() if el.tag.split("}")[-1] == "loc" and el.text]
-    return root.tag.split("}")[-1], locs
+        return None, [], []
+    kind = root.tag.split("}")[-1]
+    locs, alts = [], []
+    for el in root:
+        loc = None
+        for child in el:
+            name = child.tag.split("}")[-1]
+            if name == "loc" and child.text:
+                loc = child.text.strip()
+                locs.append(loc)
+            elif name == "link" and child.get("rel") == "alternate" and child.get("hreflang") and loc:
+                alts.append({"loc": loc, "lang": child.get("hreflang").lower(), "href": child.get("href")})
+    return kind, locs, alts
+
+
+def _xml_locs(text):
+    kind, locs, _ = _xml_parse(text)
+    return kind, locs
 
 
 def parse_sitemaps(robots_text, fetcher, origin=None, limit=500, max_files=30, max_depth=3):
@@ -195,7 +218,7 @@ def parse_sitemaps(robots_text, fetcher, origin=None, limit=500, max_files=30, m
             sources.append(urllib.parse.urljoin(origin + "/", value) if origin else value)
     if not sources and origin:
         sources = [origin + "/sitemap.xml"]
-    urls, used = [], []
+    urls, used, alternates = [], [], []
     state = {"truncated": False, "files": 0}
 
     def walk(u, depth):
@@ -208,7 +231,8 @@ def parse_sitemaps(robots_text, fetcher, origin=None, limit=500, max_files=30, m
         if resp.get("status") != 200 or resp.get("text") is None:
             return
         used.append(u)
-        kind, locs = _xml_locs(resp["text"])
+        kind, locs, alts = _xml_parse(resp["text"])
+        alternates.extend(alts[:max(0, 200 - len(alternates))])
         if kind == "sitemapindex":
             if depth >= max_depth:
                 state["truncated"] = True
@@ -225,7 +249,8 @@ def parse_sitemaps(robots_text, fetcher, origin=None, limit=500, max_files=30, m
 
     for src in sources:
         walk(src, 1)
-    return {"urls": urls, "sources": used, "count": len(urls), "truncated": state["truncated"]}
+    return {"urls": urls, "sources": used, "count": len(urls), "truncated": state["truncated"],
+            "alternates": alternates}
 
 
 def ua_block_check(url, fetcher_by_ua):
@@ -243,6 +268,9 @@ def ua_block_check(url, fetcher_by_ua):
         value = {"status": status, "browser_status": base.get("status")}
         if status is None:
             results[c["name"]] = item("unknown", value, "请求失败（%s），未能判断" % r.get("error"))
+            continue
+        if status == 429:
+            results[c["name"]] = item("unknown", value, "被限流，未能判断")
             continue
         blocked = status in (401, 403, 429, 503) or is_challenge(r)
         if not blocked:
@@ -263,11 +291,17 @@ class _HeadParser(HTMLParser):
         self.canonical = None
         self.meta_robots = []
         self.hreflang = []
+        self.hreflang_map = {}
+        self.html_lang = None
         self.links = []
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
         rel = a.get("rel", "").lower()
+        if tag == "html" and a.get("lang"):
+            self.html_lang = a["lang"]
+        if tag == "link" and "alternate" in rel.split() and a.get("hreflang") and a.get("href"):
+            self.hreflang_map.setdefault(a["hreflang"].lower(), a["href"])
         if tag == "link" and "canonical" in rel.split():
             self.canonical = a.get("href")
         elif tag == "link" and "alternate" in rel.split() and a.get("hreflang"):
@@ -293,11 +327,88 @@ def _other_domains(final_url, parser):
     return sorted(found)
 
 
-def run(url, proxy=None, timeout=10):
-    def get(u, ua=BROWSER_UA, force_text=False):
-        return fetch(u, ua=ua, proxy=proxy, timeout=timeout, force_text=force_text)
+_LINK_ITEM = re.compile(r"<([^>]+)>\s*;([^,]*(?:\"[^\"]*\"[^,]*)*)")
 
-    out = {"target": url, "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+
+def parse_link_header(value):
+    """HTTP Link 头中的 rel=alternate; hreflang=xx → {lang小写: url}。"""
+    out = {}
+    for m in _LINK_ITEM.finditer(value or ""):
+        url, params = m.group(1).strip(), m.group(2)
+        rel = re.search(r'rel\s*=\s*"?([^";]+)"?', params, re.I)
+        lang = re.search(r'hreflang\s*=\s*"?([^";]+)"?', params, re.I)
+        if rel and "alternate" in rel.group(1).lower().split() and lang:
+            out.setdefault(lang.group(1).strip().lower(), url)
+    return out
+
+
+def norm_url(url):
+    """比较用的 URL 归一化：scheme/host 小写、去 fragment、去路径末尾斜杠（根路径为 /）。"""
+    p = urllib.parse.urlsplit((url or "").strip())
+    path = p.path.rstrip("/") or "/"
+    if path == "/" and not p.query:
+        path = ""
+    return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), path, p.query, ""))
+
+
+MAX_ALTERNATES = 10
+
+
+def hreflang_check(final_url, html_alts, header_alts, sitemap_alts, html_lang, fetcher):
+    """合并三种来源的 hreflang 声明，并检查每个备用版本可访问且回链到首页。"""
+    declared, x_default = {}, None
+    for source, alts in (("html", html_alts), ("header", header_alts), ("sitemap", sitemap_alts)):
+        for lang, href in (alts or {}).items():
+            lang = lang.lower()
+            href = urllib.parse.urljoin(final_url, href)
+            if lang == "x-default":
+                x_default = x_default or href
+                continue
+            entry = declared.setdefault(lang, {"url": href, "sources": []})
+            if source not in entry["sources"]:
+                entry["sources"].append(source)
+    out = {"declared": declared, "x_default": x_default, "html_lang": html_lang, "alternates": {}}
+    if not declared:
+        out["check"] = item("warn", None, "未声明 hreflang（HTML、HTTP Link 头、sitemap 均无）")
+        return out
+    home = norm_url(final_url)
+    for lang, entry in list(declared.items())[:MAX_ALTERNATES]:
+        if norm_url(entry["url"]) == home:
+            out["alternates"][lang] = item("pass", entry["url"], "即首页本身")
+            continue
+        polite_sleep()
+        r = fetcher(entry["url"])
+        if r.get("status") != 200:
+            out["alternates"][lang] = item("fail", entry["url"], "备用版本不可访问（%s）" % (
+                r.get("error") or r.get("status")))
+            continue
+        p = _HeadParser()
+        try:
+            p.feed(r.get("text") or "")
+        except Exception:
+            pass
+        backs = list(p.hreflang_map.values()) + list(
+            parse_link_header((r.get("headers") or {}).get("link")).values())
+        base = r.get("final_url") or entry["url"]
+        if any(norm_url(urllib.parse.urljoin(base, b)) == home for b in backs):
+            out["alternates"][lang] = item("pass", entry["url"], "可访问且回链首页")
+        else:
+            out["alternates"][lang] = item("warn", entry["url"], "未回链首页（hreflang 不双向）")
+    if len(declared) > MAX_ALTERNATES:
+        out["skipped"] = list(declared)[MAX_ALTERNATES:]
+    statuses = [v["status"] for v in out["alternates"].values()]
+    worst = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "pass"
+    out["check"] = item(worst, len(declared), "声明了 %d 个语言版本" % len(declared))
+    return out
+
+
+def run(url, proxy=None, timeout=10, markets=None, lang=None):
+    def get(u, ua=BROWSER_UA, force_text=False):
+        return fetch(u, ua=ua, proxy=proxy, timeout=timeout, force_text=force_text, lang=lang)
+
+    markets = list(markets) if markets else list(MARKETS)
+    out = {"target": url, "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+           "markets": markets}
     polite_sleep()
     home = get(url)
     final = home["final_url"]
@@ -323,7 +434,8 @@ def run(url, proxy=None, timeout=10):
     crawlers = {}
     for c in AI_CRAWLERS:
         v = verdicts["bots"][c["name"]]
-        value = dict(v, purpose=c["purpose"], market=c["market"], owner=c["owner"])
+        relevant = "all" in c["markets"] or bool(set(c["markets"]) & set(markets))
+        value = dict(v, purpose=c["purpose"], markets=c["markets"], owner=c["owner"], relevant=relevant)
         if v["allowed"] is None:
             crawlers[c["name"]] = item("unknown", value, "robots.txt 无法读取，未能判断")
         elif v["allowed"]:
@@ -382,12 +494,25 @@ def run(url, proxy=None, timeout=10):
         "warn", None, "首页未找到 ICP 备案号（仅国内市场相关）")
     others = _other_domains(final, parser)
     out["other_domains"] = item("pass", others, "发现疑似同品牌其他域名，可另行审计" if others else "未发现")
+    home_norm = norm_url(final)
+    sitemap_alts = {a["lang"]: a["href"] for a in sm.get("alternates", []) if norm_url(a["loc"]) == home_norm}
+    out["hreflang"] = hreflang_check(final, parser.hreflang_map, parse_link_header(home["headers"].get("link")),
+                                     sitemap_alts, parser.html_lang, get)
     return out
 
 
 def main():
-    args = base_argparser(__doc__.splitlines()[0]).parse_args()
-    emit(run(normalize_url(args.url), args.proxy, args.timeout), args.out)
+    ap = base_argparser(__doc__.splitlines()[0])
+    ap.add_argument("--markets", default=None, help="目标市场代码，逗号分隔：%s" % ",".join(MARKETS))
+    ap.add_argument("--lang", default=None, help="请求语言（BCP 47），如 ja-JP")
+    args = ap.parse_args()
+    markets = None
+    if args.markets:
+        markets = [m.strip().lower() for m in args.markets.split(",") if m.strip()]
+        unknown = [m for m in markets if m not in MARKETS]
+        if unknown:
+            ap.error("未知市场代码：%s（可选：%s）" % (",".join(unknown), ",".join(MARKETS)))
+    emit(run(normalize_url(args.url), args.proxy, args.timeout, markets=markets, lang=args.lang), args.out)
 
 
 if __name__ == "__main__":

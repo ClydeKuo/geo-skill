@@ -4,7 +4,8 @@ import unittest
 from helpers import serve
 
 import crawl_check
-from crawl_check import AI_CRAWLERS, parse_sitemaps, robots_verdicts, run, ua_block_check
+from crawl_check import (AI_CRAWLERS, MARKETS, hreflang_check, norm_url, parse_link_header, parse_sitemaps,
+                         robots_verdicts, run, ua_block_check)
 from _common import fetch
 
 EXPECTED = {
@@ -57,7 +58,7 @@ class RobotsTests(unittest.TestCase):
         self.assertTrue(EXPECTED <= names, EXPECTED - names)
         for c in AI_CRAWLERS:
             self.assertIn(c["purpose"], {"training", "search", "user"})
-            self.assertIn(c["market"], {"global", "cn"})
+            self.assertNotIn("market", c)
 
 
 class RFC9309Tests(unittest.TestCase):
@@ -332,9 +333,106 @@ class RunTests(unittest.TestCase):
             stop()
         self.assertEqual(set(r), {"target", "final_url", "fetched_at", "homepage", "robots", "ai_crawlers",
                                   "ua_blocking", "sitemap", "canonical", "meta_robots", "x_robots_tag",
-                                  "https", "llms_txt", "icp", "other_domains"})
+                                  "https", "llms_txt", "icp", "other_domains", "markets", "hreflang"})
         self.assertIs(r["llms_txt"]["value"], True)
         self.assertEqual(r["homepage"]["status"], "pass")
+
+
+class MarketTests(unittest.TestCase):
+    def test_markets_field(self):
+        allowed = set(MARKETS) | {"all"}
+        by = {c["name"]: c for c in AI_CRAWLERS}
+        for c in AI_CRAWLERS:
+            self.assertTrue(c["markets"], c["name"])
+            self.assertTrue(set(c["markets"]) <= allowed, c["name"])
+            self.assertNotIn("market", c)
+        self.assertEqual(by["GPTBot"]["markets"], ["all"])
+        self.assertEqual(by["Baiduspider"]["markets"], ["cn"])
+        self.assertTrue({"Yeti", "Daum"} <= set(by))
+        self.assertEqual(by["Yeti"]["markets"], ["kr"])
+
+    def test_run_markets_relevant(self):
+        base, stop = serve({"/": (200, HTML, b"<html><body>hi</body></html>"),
+                            "/robots.txt": (200, TXT, b"User-agent: *\nAllow: /\n")})
+        try:
+            r = run(base + "/", None, 5, markets=["kr"])
+        finally:
+            stop()
+        self.assertEqual(r["markets"], ["kr"])
+        self.assertTrue(r["ai_crawlers"]["Yeti"]["value"]["relevant"])
+        self.assertFalse(r["ai_crawlers"]["Baiduspider"]["value"]["relevant"])
+        self.assertTrue(r["ai_crawlers"]["GPTBot"]["value"]["relevant"])
+
+    def test_ua_429_unknown(self):
+        def fetcher(ua):
+            if "Windows" in ua:
+                return {"status": 200, "text": "<html>ok</html>", "headers": {}}
+            return {"status": 429, "text": "slow", "headers": {}}
+        self.assertEqual(ua_block_check("http://x/", fetcher)["OAI-SearchBot"]["status"], "unknown")
+
+
+class HreflangTests(unittest.TestCase):
+    def test_parse_link_header(self):
+        v = ('<https://a.com/ja/>; rel="alternate"; hreflang="ja-JP", '
+             '<https://a.com/>; rel="alternate"; hreflang="x-default"')
+        self.assertEqual(parse_link_header(v), {"ja-jp": "https://a.com/ja/", "x-default": "https://a.com/"})
+        self.assertEqual(parse_link_header(None), {})
+
+    def test_sitemap_alternates(self):
+        body = ('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+                '<url><loc>https://e.com/</loc>'
+                '<xhtml:link rel="alternate" hreflang="de" href="https://e.com/de/"/>'
+                '<xhtml:link rel="alternate" hreflang="DE" href="https://e.com/de/x"/></url></urlset>').encode()
+        base, stop = serve({"/sm.xml": (200, XML, body)})
+        try:
+            r = parse_sitemaps("Sitemap: %s/sm.xml" % base, lambda u: fetch(u))
+        finally:
+            stop()
+        self.assertEqual(len(r["alternates"]), 2)
+        self.assertEqual({a["lang"] for a in r["alternates"]}, {"de"})
+        self.assertEqual(r["alternates"][0]["loc"], "https://e.com/")
+
+    def test_norm_url(self):
+        self.assertEqual(norm_url("HTTPS://A.com/ja/#x"), "https://a.com/ja")
+        self.assertEqual(norm_url("https://a.com"), norm_url("https://a.com/"))
+
+    def _site(self, routes):
+        return serve(routes)
+
+    def test_hreflang_bidirectional_and_failures(self):
+        holder = {}
+
+        def ja(_h):
+            return 200, HTML, ('<html><head><link rel="alternate" hreflang="en" href="%s"></head></html>'
+                               % (holder["base"] + "/")).encode()
+
+        base, stop = serve({"/ja/": ja, "/fr/": (200, HTML, b"<html>no back link</html>"),
+                            "/de/": (404, HTML, b"nf")})
+        holder["base"] = base
+        try:
+            r = hreflang_check(base, {"ja": base + "/ja/", "fr": base + "/fr/", "x-default": base + "/"},
+                               {"de": base + "/de/"}, {}, "en", lambda u: fetch(u))
+        finally:
+            stop()
+        self.assertEqual(r["alternates"]["ja"]["status"], "pass")
+        self.assertEqual(r["alternates"]["fr"]["status"], "warn")
+        self.assertEqual(r["alternates"]["de"]["status"], "fail")
+        self.assertEqual(r["x_default"], base + "/")
+        self.assertNotIn("x-default", r["alternates"])
+        self.assertEqual(r["html_lang"], "en")
+
+    def test_hreflang_sources_merged(self):
+        r = hreflang_check("https://a.com/", {"JA": "https://a.com/ja/"}, {}, {"ja": "https://a.com/ja/"}, None,
+                           lambda u: {"status": 200, "text": '<link rel="alternate" hreflang="en" href="https://a.com">',
+                                      "headers": {}, "final_url": u})
+        self.assertEqual(list(r["declared"]), ["ja"])
+        self.assertEqual(sorted(r["declared"]["ja"]["sources"]), ["html", "sitemap"])
+        self.assertEqual(r["alternates"]["ja"]["status"], "pass")
+
+    def test_hreflang_missing(self):
+        r = hreflang_check("https://a.com/", {}, {}, {}, "zh-CN", lambda u: {})
+        self.assertEqual(r["check"]["status"], "warn")
+        self.assertEqual(r["declared"], {})
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@
 | YisouSpider | `YisouSpider` | 神马 / 夸克 (阿里) | 国内 | 搜索检索 |  |
 | 360Spider | `360Spider` | 360 搜索 | 国内 | 搜索检索 |  |
 | PetalBot | `PetalBot` | 华为 (花瓣搜索 / 小艺) | 国内 | 搜索检索 |  |
+| Yeti | `Yeti` | Naver (搜索 / AI Briefing) | 韩国 | 搜索检索 |  |
+| Daum | `Daum` | Daum (原 Kakao 运营的搜索) | 韩国 | 搜索检索 |  |
 
 ## 没有公开 UA 的国内引擎
 
