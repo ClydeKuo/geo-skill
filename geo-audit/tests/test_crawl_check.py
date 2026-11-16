@@ -372,6 +372,64 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(ua_block_check("http://x/", fetcher)["OAI-SearchBot"]["status"], "unknown")
 
 
+class FinalReviewHreflangTests(unittest.TestCase):
+    def ok(self, back):
+        return lambda u: {"status": 200, "final_url": u, "headers": {},
+                          "text": '<link rel="alternate" hreflang="x" href="%s">' % back}
+
+    def test_malformed_href_no_crash(self):
+        r = hreflang_check("https://a.com/", {"ja": "http://[bad", "de": "https://a.com/de/"}, {}, {}, None,
+                           self.ok("https://a.com/"))
+        self.assertEqual(r["alternates"]["ja"]["status"], "fail")
+        self.assertIn("格式", r["alternates"]["ja"]["detail"])
+        self.assertEqual(r["alternates"]["de"]["status"], "pass")
+
+    def test_target_markets_checked_first(self):
+        alts = {"l%02d" % i: "https://a.com/l%02d/" % i for i in range(12)}
+        alts["en-us"] = "https://a.com/en-us/"
+        r = hreflang_check("https://a.com/", alts, {}, {}, None, self.ok("https://a.com/"), markets=["us"])
+        self.assertIn("en-us", r["alternates"])
+        self.assertNotIn("en-us", r.get("skipped", []))
+
+    def test_rate_limited_alternate_unknown(self):
+        def fetcher(u):
+            if "/ja/" in u:
+                return {"status": 429, "headers": {}, "text": "slow", "final_url": u, "rate_limited": True}
+            return {"status": 200, "final_url": u, "headers": {},
+                    "text": '<link rel="alternate" hreflang="x" href="https://a.com/">'}
+        r = hreflang_check("https://a.com/", {"ja": "https://a.com/ja/", "de": "https://a.com/de/"}, {}, {}, None,
+                           fetcher)
+        self.assertEqual(r["alternates"]["ja"]["status"], "unknown")
+        self.assertTrue(r["alternates"]["ja"]["value"]["rate_limited"])
+        self.assertEqual(r["check"]["status"], "pass")
+
+    def test_redirecting_alternate_fails(self):
+        fetcher = lambda u: {"status": 200, "final_url": "https://a.com/", "headers": {},
+                             "text": '<link rel="alternate" hreflang="x" href="https://a.com/">'}
+        r = hreflang_check("https://a.com/", {"ja": "https://a.com/ja/"}, {}, {}, None, fetcher)
+        self.assertEqual(r["alternates"]["ja"]["status"], "fail")
+        self.assertIn("跳转", r["alternates"]["ja"]["detail"])
+
+    def test_run_survives_bad_sitemap_alternate(self):
+        sm = ('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+              '<url><loc>http://[bad</loc><xhtml:link rel="alternate" hreflang="ja" href="http://[bad"/></url>'
+              '</urlset>').encode()
+        base, stop = serve({"/": (200, HTML, b"<html><body>hi</body></html>"),
+                            "/robots.txt": (200, TXT, b"User-agent: *\nAllow: /\n"),
+                            "/sitemap.xml": (200, XML, sm)})
+        try:
+            r = run(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertIn("hreflang", r)
+        self.assertIn("rate_limited", r["homepage"]["value"])
+
+    def test_ua_block_value_has_rate_limited(self):
+        fetcher = lambda ua: {"status": 200, "text": "<html>ok</html>", "headers": {}, "rate_limited": False}
+        r = ua_block_check("http://x/", fetcher)
+        self.assertIn("rate_limited", r["OAI-SearchBot"]["value"])
+
+
 class HreflangTests(unittest.TestCase):
     def test_parse_link_header(self):
         v = ('<https://a.com/ja/>; rel="alternate"; hreflang="ja-JP", '

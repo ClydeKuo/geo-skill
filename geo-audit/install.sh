@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --project) PROJECT="${2:-}"; [ -n "$PROJECT" ] || { echo "error: --project 需要目录参数" >&2; exit 2; }; shift 2 ;;
     --user) USER_INSTALL=1; shift ;;
-    --tools) TOOLS="${2:-}"; shift 2 ;;
+    --tools) TOOLS="${2:-}"; [ -n "$TOOLS" ] || { echo "error: --tools 需要取值，如 claude,agents" >&2; exit 2; }; shift 2 ;;
     -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "error: 未知参数 $1" >&2; exit 2 ;;
   esac

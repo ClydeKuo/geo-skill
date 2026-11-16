@@ -113,6 +113,11 @@ class SkillDocTests(unittest.TestCase):
         self.assertNotIn("checklist-cn", doc)
         self.assertNotIn("checklist-global", doc)
 
+    def test_crawl_check_command_has_lang(self):
+        lines = [ln for ln in self.doc().splitlines() if "scripts/crawl_check.py <url>" in ln]
+        self.assertTrue(lines)
+        self.assertTrue(all("--lang" in ln for ln in lines), lines)
+
     def test_legacy_audit_json_mapping(self):
         doc = self.doc()
         self.assertIn('"both"', doc)

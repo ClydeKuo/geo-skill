@@ -190,7 +190,8 @@ def _slug(url):
 
 def audit_url(url, proxy=None, timeout=10, lang=None, save_dir=None, index=0):
     r = fetch(url, proxy=proxy, timeout=timeout, lang=lang)
-    out = {"url": url, "final_url": r["final_url"], "status": r["status"], "result": None, "saved_html": None}
+    out = {"url": url, "final_url": r["final_url"], "status": r["status"], "result": None, "saved_html": None,
+           "rate_limited": bool(r.get("rate_limited"))}
     if is_challenge(r):
         out["check"] = item("unknown", None, "审计机被 WAF/CDN 挑战页拦截，未评估内容")
     elif r["status"] != 200:

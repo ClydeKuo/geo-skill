@@ -123,6 +123,14 @@ class AuditUrlTests(unittest.TestCase):
             stop()
         self.assertEqual(r["check"]["status"], "unknown")
 
+    def test_audit_url_has_rate_limited(self):
+        base, stop = serve({"/": (200, {"Content-Type": "text/html"}, b"<p>x</p>")})
+        try:
+            r = audit_url(base + "/", None, 5)
+        finally:
+            stop()
+        self.assertIs(r["rate_limited"], False)
+
     def test_audit_url_ok(self):
         base, stop = serve({"/": (200, {"Content-Type": "text/html; charset=utf-8"}, fixture_bytes("rich_page.html"))})
         try:

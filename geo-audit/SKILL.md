@@ -58,7 +58,7 @@ description: Use when a client wants their website to show up, be cited, or be r
 
 2. **可抓取检查**（同时是联网试跑）
    ```bash
-   python3 <skill>/scripts/crawl_check.py <url> --markets <代码列表> --out <输出目录>/crawl.json
+   python3 <skill>/scripts/crawl_check.py <url> --markets <代码列表> --lang <首个目标市场的语言标签> --out <输出目录>/crawl.json
    ```
    - 如果 `homepage` 和 `robots` 都是网络错误，说明当前环境不能联网：停止，告诉用户需要开启联网（Codex 的开启方式见 README），不要出空报告。
    - 读 `ai_crawlers`（`relevant` 为 true 的重点看）、`ua_blocking`、`homepage`、`robots.value.source`、`meta_robots`、`x_robots_tag`、`canonical`、`https`、`sitemap`、`icp`、`hreflang`、`other_domains`。判定规则见 `references/checklist.md`，本地爬虫见各市场档案第 4 节。
@@ -106,6 +106,7 @@ description: Use when a client wants their website to show up, be cited, or be r
 - 脚本已内置退避：遇到 429 或带 Retry-After 的 503 会等待后重试一次，并自动放慢后续请求。结果中出现 `rate_limited: true`，或多个页面连续返回 429 时：
   - 把剩余重点页减到每个市场 2 页；
   - 在报告"审计范围与假设"中写明"站点限流，抽查页数已减少"。
+- 被限流时单个脚本可能运行数分钟（等待 Retry-After）。运行脚本时把 shell 超时设为 10 分钟，或放到后台运行，不要因超时中断而丢失 JSON 输出。
 - 整次审计建议在 **45 分钟**内完成。超过时停止新增抓取，用已有数据写报告，并注明未完成的检查。
 - **禁止**为规避限流轮换代理或出口 IP，也不要改 UA、加速重试。
 - 只有两种情况可以用 `--proxy` 指定某个国家的出口：测试该目标国家的可达性；站点按访问地区返回不同内容。用了哪个国家的出口要写进报告，**只写国家，不写代理地址**（代理地址属于审计方的内部信息，报告和 `audit.json` 都要交给客户）。

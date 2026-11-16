@@ -23,7 +23,10 @@ class InstallTests(unittest.TestCase):
 
     def run_install(self, *args):
         env = dict(os.environ, HOME=self.home)
-        return subprocess.run(["bash", SCRIPT] + list(args), capture_output=True, text=True, env=env, timeout=30)
+        try:
+            return subprocess.run(["bash", SCRIPT] + list(args), capture_output=True, text=True, env=env, timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fail("install.sh 未在 10 秒内退出：%s" % (args,))
 
     def assertLinksToSkill(self, path):
         self.assertTrue(os.path.islink(path), path)
@@ -66,6 +69,12 @@ class InstallTests(unittest.TestCase):
         r = self.run_install("--project", proj)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertLinksToSkill(os.path.join(proj, ".claude/skills/geo-audit"))
+
+    def test_tools_without_value_exits(self):
+        r = self.run_install("--project", self.project, "--tools")
+        self.assertEqual(r.returncode, 2)
+        r2 = self.run_install("--project", self.project, "--tools", "")
+        self.assertEqual(r2.returncode, 2)
 
     def test_cursor_tool(self):
         r = self.run_install("--project", self.project, "--tools", "cursor")

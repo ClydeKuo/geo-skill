@@ -227,6 +227,29 @@ class RateLimitTests(unittest.TestCase):
             stop()
         self.assertEqual(len(calls), 1)
 
+    def test_retry_after_60_not_waited(self):
+        route, calls = self._counting([(429, {"Retry-After": "60"}, b"slow")])
+        base, stop = serve({"/": route})
+        try:
+            r = fetch(base + "/")
+        finally:
+            stop()
+        self.assertTrue(r["rate_limited"])
+        self.assertEqual(len(calls), 1)
+
+    def test_no_more_retries_after_rate_limited(self):
+        route, calls = self._counting([(429, {"Retry-After": "1"}, b"slow")])
+        base, stop = serve({"/": route})
+        try:
+            fetch(base + "/")
+            before = len(calls)
+            r = fetch(base + "/")
+        finally:
+            stop()
+        self.assertEqual(before, 2)
+        self.assertEqual(len(calls) - before, 1)
+        self.assertTrue(r["rate_limited"])
+
     def test_interval_doubles_and_caps(self):
         _c._note_rate_limited()
         self.assertEqual(current_interval(), 2.0)

@@ -25,8 +25,9 @@ _last_request = [0.0]
 DEFAULT_INTERVAL = 1.0
 MAX_INTERVAL = 10.0
 DEFAULT_RETRY_AFTER = 10.0
-MAX_RETRY_WAIT = 60.0
+MAX_RETRY_WAIT = 30.0  # 超过则不等待：避免单个脚本因 Retry-After: 60 累计等待超过 shell 超时
 _interval = [DEFAULT_INTERVAL]
+_retry_disabled = [False]  # 本进程内一旦出现最终仍被限流的请求，后续不再等待重试
 
 
 def current_interval():
@@ -34,8 +35,9 @@ def current_interval():
 
 
 def reset_interval():
-    """仅供测试：恢复默认请求间隔。"""
+    """仅供测试：恢复默认请求间隔与重试状态。"""
     _interval[0] = DEFAULT_INTERVAL
+    _retry_disabled[0] = False
 
 
 def _note_rate_limited():
@@ -177,8 +179,9 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False, lang=Non
     if r["status"] == 429:
         _note_rate_limited()
     wait = parse_retry_after(r["headers"].get("retry-after"))
-    if wait > MAX_RETRY_WAIT:
+    if wait > MAX_RETRY_WAIT or _retry_disabled[0]:
         r["rate_limited"] = True
+        _retry_disabled[0] = True
         return r
     time.sleep(wait)
     r2 = _fetch_once(url, ua, proxy, timeout, force_text, lang)
@@ -186,6 +189,7 @@ def fetch(url, ua=BROWSER_UA, proxy=None, timeout=10, force_text=False, lang=Non
         if r2["status"] == 429:
             _note_rate_limited()
         r2["rate_limited"] = True
+        _retry_disabled[0] = True
     return r2
 
 

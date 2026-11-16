@@ -274,7 +274,7 @@ def ua_block_check(url, fetcher_by_ua):
         polite_sleep()
         r = fetcher_by_ua(c["ua_full"])
         status = r.get("status")
-        value = {"status": status, "browser_status": base.get("status")}
+        value = {"status": status, "browser_status": base.get("status"), "rate_limited": bool(r.get("rate_limited"))}
         if status is None:
             results[c["name"]] = item("unknown", value, "请求失败（%s），未能判断" % r.get("error"))
             continue
@@ -352,8 +352,11 @@ def parse_link_header(value):
 
 
 def norm_url(url):
-    """比较用的 URL 归一化：scheme/host 小写、去 fragment、去路径末尾斜杠（根路径为 /）。"""
-    p = urllib.parse.urlsplit((url or "").strip())
+    """比较用的 URL 归一化：scheme/host 小写、去 fragment、去路径末尾斜杠（根路径为 /）。格式错误时原样小写返回。"""
+    try:
+        p = urllib.parse.urlsplit((url or "").strip())
+    except ValueError:
+        return (url or "").strip().lower()
     path = p.path.rstrip("/") or "/"
     if path == "/" and not p.query:
         path = ""
@@ -363,13 +366,38 @@ def norm_url(url):
 MAX_ALTERNATES = 10
 
 
-def hreflang_check(final_url, html_alts, header_alts, sitemap_alts, html_lang, fetcher):
-    """合并三种来源的 hreflang 声明，并检查每个备用版本可访问且回链到首页。"""
-    declared, x_default = {}, None
+def _market_rank(lang, markets):
+    """目标市场对应的语言排前面：完全匹配 0、主语言匹配 1、其他 2。"""
+    best = 2
+    for m in markets or []:
+        tag = MARKET_LANG.get(m, "").lower()
+        if not tag:
+            continue
+        if lang == tag:
+            return 0
+        if lang.split("-")[0] == tag.split("-")[0]:
+            best = 1
+    return best
+
+
+def _alt_value(url, r):
+    return {"url": url, "status": r.get("status"), "rate_limited": bool(r.get("rate_limited"))}
+
+
+def hreflang_check(final_url, html_alts, header_alts, sitemap_alts, html_lang, fetcher, markets=None):
+    """合并三种来源的 hreflang 声明，并检查每个备用版本可访问、不跳转且回链到首页。"""
+    declared, x_default, malformed = {}, None, {}
     for source, alts in (("html", html_alts), ("header", header_alts), ("sitemap", sitemap_alts)):
         for lang, href in (alts or {}).items():
-            lang = lang.lower()
-            href = urllib.parse.urljoin(final_url, href)
+            lang = (lang or "").strip().lower()
+            if not lang or not href:
+                continue
+            try:
+                href = urllib.parse.urljoin(final_url, href)
+                urllib.parse.urlsplit(href)
+            except ValueError:
+                malformed.setdefault(lang, href)
+                continue
             if lang == "x-default":
                 x_default = x_default or href
                 continue
@@ -377,19 +405,33 @@ def hreflang_check(final_url, html_alts, header_alts, sitemap_alts, html_lang, f
             if source not in entry["sources"]:
                 entry["sources"].append(source)
     out = {"declared": declared, "x_default": x_default, "html_lang": html_lang, "alternates": {}}
-    if not declared:
+    for lang, href in malformed.items():
+        out["alternates"][lang] = item("fail", {"url": href, "status": None, "rate_limited": False},
+                                       "hreflang 中的 URL 格式错误")
+    if not declared and not malformed:
         out["check"] = item("warn", None, "未声明 hreflang（HTML、HTTP Link 头、sitemap 均无）")
         return out
     home = norm_url(final_url)
-    for lang, entry in list(declared.items())[:MAX_ALTERNATES]:
+    order = sorted(declared, key=lambda lg: _market_rank(lg, markets))
+    for lang in order[:MAX_ALTERNATES]:
+        entry = declared[lang]
         if norm_url(entry["url"]) == home:
-            out["alternates"][lang] = item("pass", entry["url"], "即首页本身")
+            out["alternates"][lang] = item("pass", {"url": entry["url"], "status": None, "rate_limited": False},
+                                           "即首页本身")
             continue
         polite_sleep()
         r = fetcher(entry["url"])
+        value = _alt_value(entry["url"], r)
+        if r.get("status") is None or r.get("status") == 429 or is_challenge(r):
+            out["alternates"][lang] = item("unknown", value, "未能检测（%s）" % (
+                "被限流" if r.get("status") == 429 else "被挑战页拦截" if is_challenge(r) else r.get("error")))
+            continue
         if r.get("status") != 200:
-            out["alternates"][lang] = item("fail", entry["url"], "备用版本不可访问（%s）" % (
-                r.get("error") or r.get("status")))
+            out["alternates"][lang] = item("fail", value, "备用版本不可访问（%s）" % r.get("status"))
+            continue
+        landed = r.get("final_url") or entry["url"]
+        if norm_url(landed) != norm_url(entry["url"]):
+            out["alternates"][lang] = item("fail", value, "备用版本跳转到 %s" % landed)
             continue
         p = _HeadParser()
         try:
@@ -398,15 +440,20 @@ def hreflang_check(final_url, html_alts, header_alts, sitemap_alts, html_lang, f
             pass
         backs = list(p.hreflang_map.values()) + list(
             parse_link_header((r.get("headers") or {}).get("link")).values())
-        base = r.get("final_url") or entry["url"]
-        if any(norm_url(urllib.parse.urljoin(base, b)) == home for b in backs):
-            out["alternates"][lang] = item("pass", entry["url"], "可访问且回链首页")
+        back_norm = set()
+        for b in backs:
+            try:
+                back_norm.add(norm_url(urllib.parse.urljoin(landed, b)))
+            except ValueError:
+                continue
+        if home in back_norm:
+            out["alternates"][lang] = item("pass", value, "可访问且回链首页")
         else:
-            out["alternates"][lang] = item("warn", entry["url"], "未回链首页（hreflang 不双向）")
-    if len(declared) > MAX_ALTERNATES:
-        out["skipped"] = list(declared)[MAX_ALTERNATES:]
-    statuses = [v["status"] for v in out["alternates"].values()]
-    worst = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "pass"
+            out["alternates"][lang] = item("warn", value, "未回链首页（hreflang 不双向）")
+    if len(order) > MAX_ALTERNATES:
+        out["skipped"] = order[MAX_ALTERNATES:]
+    statuses = [v["status"] for v in out["alternates"].values() if v["status"] != "unknown"]
+    worst = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "pass" if statuses else "unknown"
     out["check"] = item(worst, len(declared), "声明了 %d 个语言版本" % len(declared))
     return out
 
@@ -422,7 +469,7 @@ def run(url, proxy=None, timeout=10, markets=None, lang=None):
     home = get(url)
     final = home["final_url"]
     out["final_url"] = final
-    hv = {k: home[k] for k in ("status", "elapsed_ms", "bytes", "content_type", "error")}
+    hv = {k: home.get(k) for k in ("status", "elapsed_ms", "bytes", "content_type", "error", "rate_limited")}
     home_challenged = is_challenge(home)
     if home_challenged:
         out["homepage"] = item("unknown", hv, "审计机被 WAF/CDN 挑战页拦截（%s），不代表网站不可用，"
@@ -504,9 +551,10 @@ def run(url, proxy=None, timeout=10, markets=None, lang=None):
     others = _other_domains(final, parser)
     out["other_domains"] = item("pass", others, "发现疑似同品牌其他域名，可另行审计" if others else "未发现")
     home_norm = norm_url(final)
-    sitemap_alts = {a["lang"]: a["href"] for a in sm.get("alternates", []) if norm_url(a["loc"]) == home_norm}
+    sitemap_alts = {a["lang"]: a["href"] for a in sm.get("alternates", [])
+                    if a.get("href") and norm_url(a["loc"]) == home_norm}
     out["hreflang"] = hreflang_check(final, parser.hreflang_map, parse_link_header(home["headers"].get("link")),
-                                     sitemap_alts, parser.html_lang, get)
+                                     sitemap_alts, parser.html_lang, get, markets=markets)
     return out
 
 
