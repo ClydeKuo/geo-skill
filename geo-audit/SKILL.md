@@ -35,7 +35,9 @@ description: Use when a client wants their website to show up, be cited, or be r
 
 ## 审计流程
 
-先建立输出目录：`geo-report-<域名>-<YYYYMMDD>/`（放在当前工作目录下），所有原始 JSON 都存到这里。
+先建立输出目录：`geo-report-<主机名>-<YYYYMMDD>/`（放在当前工作目录下），所有原始 JSON 都存到这里。`<主机名>` 取首页最终地址的主机名原样，例如 `www.example.com`。
+
+**一次审计只审一个站点。** 如果另一个目标市场的站点在别的域名上（例如海外是 `brand.com`、国内是 `brand.cn`）：本次只审用户给的网址；在报告"审计范围与假设"和"站外提及"中写明发现的其他域名，并建议另做一次审计。用户明确要求两个都审时，分两次执行本流程，生成两个独立的输出目录和两份报告。查找其他域名的途径：`crawl.json` 的 `other_domains`，加上 WebSearch"<品牌> 官网"（脚本只能发现首页链接到的同名域名）。
 
 1. **收集上下文**。网址必填。品牌名、主营业务、目标市场（国内 / 海外 / 两者）缺失时询问一次；用户不答就从首页推断，并在报告"审计范围与假设"中写明。确认审计机的网络出口（`curl -s https://myip.ipip.net`）：没有中国大陆出口时，国内可达性一项标"未检测（无大陆出口）"。
 
@@ -43,9 +45,9 @@ description: Use when a client wants their website to show up, be cited, or be r
    ```bash
    python3 <skill 目录>/scripts/crawl_check.py <url> --out <输出目录>/crawl.json
    ```
-   读 `ai_crawlers`、`ua_blocking`、`homepage`、`meta_robots`、`x_robots_tag`、`sitemap`、`other_domains`。判定规则见对应市场的清单。
+   读 `ai_crawlers`、`ua_blocking`、`homepage`、`meta_robots`、`x_robots_tag`、`sitemap`、`other_domains`。判定规则见对应市场的清单。`sitemap.value.truncated` 为 true 时，`count` 只是已读取的数量，不是全站总数。
 
-3. **选重点页**，最多 20 个：首页、核心产品 / 服务页、对比页、定价页、关于页、2–3 篇内容页。来源优先用 `crawl.json` 的 sitemap URL 和首页导航。两个市场共用一个站点时，两种语言的版本都要选。
+3. **选重点页**，每次审计最多 20 个：首页、核心产品 / 服务页、对比页、定价页、关于页、2–3 篇内容页。来源优先用 `crawl.json` 的 sitemap URL 和首页导航。两个市场共用一个站点时，两种语言的版本都要选。
 
 4. **渲染对比**。每次传 1–5 个 URL，超时用 30 秒：
    ```bash
@@ -56,7 +58,7 @@ description: Use when a client wants their website to show up, be cited, or be r
    ```bash
    python3 <skill 目录>/scripts/page_audit.py <url1> <url2> … --out <输出目录>/pages.json
    ```
-   脚本只负责计数。是否有定义句、对比、步骤、可核实的数据，是否一段只讲一个主张，要靠你阅读页面正文来判断（用 WebFetch，或者从脚本抓到的 HTML 里提取）。
+   脚本只负责计数，并且计数会排除 `<nav>` 以及页面级 `<header>`、`<footer>` 里的链接和标题。注意检查每页的 `canonical`：指向别的地址或会跳转的地址，按 P1 处理。是否有定义句、对比、步骤、可核实的数据，是否一段只讲一个主张，要靠你阅读页面正文来判断（用 WebFetch，或者从脚本抓到的 HTML 里提取）。
 
 6. **可检索判断**。每个目标市场推演 10–20 个用户会问 AI 的问题，覆盖认知 / 对比 / 决策 / 售后四个阶段。海外用英文，国内用中文口语。逐条判断站内是否有页面的标题或段落直接回答，填进"问题覆盖表"。
 
@@ -69,7 +71,7 @@ description: Use when a client wants their website to show up, be cited, or be r
     "offsite_queries": ["…"], "date": "YYYY-MM-DD"}
    ```
 
-9. **写报告**。复制 `references/report-template.md` 的结构，写到 `geo-report-<域名>-<YYYYMMDD>.md`，与输出目录放在同一级。只有一个目标市场时删掉另一个市场的章节。
+9. **写报告**。复制 `references/report-template.md` 的结构，保留全部章节编号（不适用的章节写"不适用"，不要删除），写到 `geo-report-<域名>-<YYYYMMDD>.md`，与输出目录放在同一级。只有一个目标市场时，删掉另一个市场的小节（3.1 或 3.2）。
 
 ### 复查模式
 
@@ -85,7 +87,8 @@ description: Use when a client wants their website to show up, be cited, or be r
 | `ua_blocking` 为 `warn` | 连浏览器 UA 也被拦 | 说明审计受限，需要人工复核 |
 | `render_diff` 的 `ratio` < 0.5 | AI 爬虫基本看不到正文 | P0，列出 `js_only_headings` |
 | 某项为 `unknown` | 脚本没能检测 | 写"未能检测"及原因，**不评价** |
-| `llms_txt` | 只记录有无 | 放进"不建议投入"一节 |
+| `llms_txt` | 只记录有无，有无都是 `pass` | 放进"不建议投入"一节 |
+| `render_diff` 的 `raw_words` / `rendered_words` | 中日韩文字每字计 1，英文按单词计 | 中英文页面的字数不能直接比较 |
 
 ## 红线
 
@@ -102,5 +105,7 @@ description: Use when a client wants their website to show up, be cited, or be r
 - **用 Google 排名推断 AI 可见度**：两者重叠很低（E13），要分开看。
 - **只看脚本计数就下结论**：`numbers` 多不代表数据可核实，还要读正文。
 - **用自己的偏好推演问题**：推演的问题要用用户的口吻和问法（"X 哪个牌子好"、"best X for Y"），不要用客户的品牌口号。
-- **sitemap 只读了前 500 条**：`count` 达到 500 时，在报告里注明"sitemap 只读取了前 500 条"。
+- **把 sitemap 的 `count` 当成全站页面数**：`truncated` 为 true 时，要在报告里写"已读取 N 条，未读完"。
+- **只看 `ratio` 判断"能不能看到"**：渲染对比只比较字数。有些内容渲染后仍然看不到，比如折叠的 FAQ 答案只存在于 JS 数据里，或者数字动画在 HTML 中显示为 0。阅读正文时要专门检查这两类情况，发现了就按第3层问题写。
+- **相信 `external_links` 一定是"引用来源"**：有的站页脚是用 `<div>` 写的，社交、姊妹站链接仍会被计入。要看具体链接再下结论。
 - **Write 工具被拒绝**（例如在子代理里运行）：改用 Bash 的 heredoc 写文件。

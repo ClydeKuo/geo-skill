@@ -13,7 +13,7 @@ P0/P1/P2 规则与海外清单相同，另加两条：
 
 - [ ] 国内网络可达性：有大陆出口时用 `--proxy` 测试，打不开 → P0；没有大陆出口 → "未检测"。依据 E2。
 - [ ] robots.txt 对国内检索类爬虫（Baiduspider、Sogou web spider、YisouSpider、360Spider、PetalBot）的放行：被拦 → P0。依据 E2。
-- [ ] Bytespider 是否放行：豆包相关，被拦 → P1，说明影响豆包训练与头条搜索收录（推断）。依据 E2、E12。
+- [ ] Bytespider 是否放行：属于训练类，被拦时与其他训练爬虫一样只说明利弊、由客户决定，不列为问题；说明中要提到它可能影响豆包与头条搜索的收录（推断）。依据 E12。
 - [ ] WAF / CDN 是否拦截国内爬虫 UA（`ua_blocking`）：`suspect` → P1。依据 E2。
 - [ ] 不执行 JS 时的正文比例：< 0.5 → P0。百度爬虫对 JS 的支持有限，国内 AI 爬虫的情况未公开，按"不执行 JS"保守处理。依据 E11。
 - [ ] meta robots / X-Robots-Tag 是否含 noindex（包括 `baiduspider` 专用的 meta）。依据 E2。
