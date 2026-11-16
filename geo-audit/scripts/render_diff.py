@@ -42,19 +42,22 @@ def find_browser():
 
 def render(url, browser, proxy=None, timeout=10):
     """用 headless 浏览器渲染页面并返回 DOM；失败返回 None。"""
-    with tempfile.TemporaryDirectory(prefix="geo-chrome-") as profile:
-        cmd = [browser]
-        if "headless-shell" not in os.path.basename(browser) and "headless_shell" not in browser:
-            cmd.append("--headless=new")
-        cmd += ["--disable-gpu", "--no-sandbox", "--no-first-run", "--hide-scrollbars",
-                "--user-data-dir=%s" % profile, "--user-agent=%s" % BROWSER_UA,
-                "--virtual-time-budget=8000", "--dump-dom", url]
-        if proxy:
-            cmd.insert(1, "--proxy-server=%s" % proxy)
-        try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 20)
-        except (subprocess.TimeoutExpired, OSError):
-            return None
+    # Chrome 退出后子进程可能仍在写 profile，清理失败不能影响结果
+    profile = tempfile.mkdtemp(prefix="geo-chrome-")
+    cmd = [browser]
+    if "headless-shell" not in os.path.basename(browser) and "headless_shell" not in browser:
+        cmd.append("--headless=new")
+    cmd += ["--disable-gpu", "--no-sandbox", "--no-first-run", "--hide-scrollbars",
+            "--user-data-dir=%s" % profile, "--user-agent=%s" % BROWSER_UA,
+            "--virtual-time-budget=8000", "--dump-dom", url]
+    if proxy:
+        cmd.insert(1, "--proxy-server=%s" % proxy)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 20)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     return proc.stdout.decode("utf-8", "replace")

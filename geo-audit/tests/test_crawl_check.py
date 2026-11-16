@@ -112,6 +112,45 @@ class UABlockTests(unittest.TestCase):
         self.assertEqual(r["OAI-SearchBot"]["status"], "warn")
 
 
+class CloudflareTests(unittest.TestCase):
+    """正常页面里 Cloudflare 注入的 challenge-platform 脚本不能被当成挑战页。"""
+
+    NORMAL = (b"<html><body>ok<script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'>"
+              b"</script></body></html>")
+
+    def test_injected_script_not_challenge(self):
+        base, stop = serve({"/": (200, HTML, self.NORMAL)})
+        try:
+            r = ua_block_check(base + "/", lambda ua: fetch(base + "/", ua=ua))
+        finally:
+            stop()
+        self.assertEqual(r["OAI-SearchBot"]["status"], "pass")
+
+    def test_cf_challenge_is_suspect(self):
+        def home(headers):
+            if "Mozilla/5.0 (Windows" in headers.get("User-Agent", ""):
+                return 200, HTML, self.NORMAL
+            return 403, dict(HTML, **{"cf-mitigated": "challenge"}), b"<html><title>Just a moment...</title></html>"
+        base, stop = serve({"/": home})
+        try:
+            r = ua_block_check(base + "/", lambda ua: fetch(base + "/", ua=ua))
+        finally:
+            stop()
+        self.assertEqual(r["OAI-SearchBot"]["status"], "suspect")
+
+    def test_200_challenge_title_is_blocked(self):
+        def home(headers):
+            if "Mozilla/5.0 (Windows" in headers.get("User-Agent", ""):
+                return 200, HTML, self.NORMAL
+            return 200, HTML, b"<html><head><title>Just a moment...</title></head></html>"
+        base, stop = serve({"/": home})
+        try:
+            r = ua_block_check(base + "/", lambda ua: fetch(base + "/", ua=ua))
+        finally:
+            stop()
+        self.assertEqual(r["PerplexityBot"]["status"], "suspect")
+
+
 class RunTests(unittest.TestCase):
     def test_run_uses_final_origin(self):
         base2, stop2 = serve({"/": (200, HTML, b"<html><body>site2</body></html>"),

@@ -74,7 +74,18 @@ AI_CRAWLERS = [
      "ua_full": "Mozilla/5.0 (compatible;PetalBot;+https://webmaster.petalsearch.com/site/petalbot)"},
 ]
 
-_CHALLENGE = re.compile(r"cf-chl|challenge-platform|captcha|just a moment", re.I)
+# 只匹配挑战页/验证页本身的特征。注意：Cloudflare 会在正常页面注入
+# /cdn-cgi/challenge-platform/scripts/jsd/main.js，不能把 "challenge-platform" 当挑战特征。
+_CHALLENGE_TITLE = re.compile(
+    r"<title>\s*(?:just a moment|attention required|access denied|请稍候|安全验证|人机验证|验证码)", re.I)
+_CHALLENGE_BODY = re.compile(r"_cf_chl_opt|cf-chl-widget|challenges\.cloudflare\.com/turnstile", re.I)
+
+
+def _is_challenge(resp):
+    if "challenge" in (resp.get("headers") or {}).get("cf-mitigated", "").lower():
+        return True
+    text = resp.get("text") or ""
+    return bool(_CHALLENGE_TITLE.search(text) or _CHALLENGE_BODY.search(text))
 _ICP = re.compile(r"[\u4e00-\u9fa5]ICP[备证]\d+号(?:-\d+)?")
 
 
@@ -178,7 +189,7 @@ def ua_block_check(url, fetcher_by_ua):
     """以浏览器 UA 做对照，逐个用检索/用户触发类 AI 爬虫 UA 请求首页。"""
     polite_sleep()
     base = fetcher_by_ua(BROWSER_UA)
-    base_ok = base.get("status") == 200 and not _CHALLENGE.search(base.get("text") or "")
+    base_ok = base.get("status") == 200 and not _is_challenge(base)
     results = {}
     for c in AI_CRAWLERS:
         if c["purpose"] == "training" or not c["ua_full"]:
@@ -186,8 +197,7 @@ def ua_block_check(url, fetcher_by_ua):
         polite_sleep()
         r = fetcher_by_ua(c["ua_full"])
         status = r.get("status")
-        blocked = (status in (401, 403, 429, 503) or status is None
-                   or bool(_CHALLENGE.search(r.get("text") or "")))
+        blocked = status in (401, 403, 429, 503) or status is None or _is_challenge(r)
         value = {"status": status, "browser_status": base.get("status")}
         if not blocked:
             results[c["name"]] = item("pass", value, "AI UA 访问正常")

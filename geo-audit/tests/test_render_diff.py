@@ -54,6 +54,24 @@ class BrowserTests(unittest.TestCase):
             stop()
         self.assertEqual(r["check"]["status"], "unknown")
 
+    def test_render_survives_profile_cleanup_error(self):
+        """Chrome 退出后仍在写 profile 时，清理失败不能让 render 崩溃。"""
+        import shutil
+        real_rmtree = shutil.rmtree
+
+        def fake_run(cmd, **kw):
+            return mock.Mock(returncode=0, stdout=b"<html><body>dom</body></html>")
+
+        def strict_rmtree(path, ignore_errors=False, **kw):
+            if not ignore_errors:
+                raise OSError(39, "Directory not empty")
+            real_rmtree(path, ignore_errors=True)
+
+        with mock.patch("render_diff.subprocess.run", side_effect=fake_run), \
+             mock.patch("render_diff.shutil.rmtree", side_effect=strict_rmtree), \
+             mock.patch("tempfile.TemporaryDirectory.cleanup", side_effect=OSError(39, "Directory not empty")):
+            self.assertIn("dom", render("http://x/", "/usr/bin/google-chrome", None, 5))
+
     @unittest.skipUnless(find_browser(), "no browser installed")
     def test_render_real_browser(self):
         page = (b"<html><body><div id='a'></div><script>"
