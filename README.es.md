@@ -1,6 +1,6 @@
 # geo-audit
 
-[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | **Español**
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | **Español**
 
 Un skill en el formato abierto Agent Skills. Con solo una URL, audita desde fuera la visibilidad de un sitio web en la búsqueda con IA en uno o varios países o mercados lingüísticos (ChatGPT, Perplexity, Google AI Overviews, Gemini, Copilot, Doubao, DeepSeek, Naver AI Briefing, Le Chat, etc.) y genera un informe de optimización en el que cada recomendación se califica según la solidez de la evidencia de investigación. El informe se redacta en el idioma en que se hizo la petición.
 

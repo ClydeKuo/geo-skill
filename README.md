@@ -1,55 +1,55 @@
 # geo-audit
 
-**简体中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
 
-一个遵循开放 Agent Skills 格式的 skill：只凭网址，从外部审计网站在一个或多个国家 / 语言市场的 AI 搜索可见度（ChatGPT、Perplexity、Google AI Overviews、Gemini、Copilot、豆包、DeepSeek、Naver AI Briefing、Le Chat 等），输出带论文证据强度的优化报告。报告语言跟随用户提问的语言。
+A skill in the open Agent Skills format. Given only a URL, it audits a website from the outside for its visibility in AI search across one or more countries / language markets (ChatGPT, Perplexity, Google AI Overviews, Gemini, Copilot, Doubao, DeepSeek, Naver AI Briefing, Le Chat, etc.) and produces an optimization report in which every recommendation is graded by research evidence. The report is written in the language the user asked in.
 
-- 已建档市场：中国 `cn`、美国 `us`、日本 `jp`、韩国 `kr`、德国 `de`、法国 `fr`、西班牙语地区 `es`；其他市场走通用档案
+- Profiled markets: China `cn`, United States `us`, Japan `jp`, South Korea `kr`, Germany `de`, France `fr`, Spanish-speaking markets `es`; all other markets use the generic profile
 
-## 安装
+## Installation
 
 ```bash
-# 装到当前仓库（Claude Code 读 .claude/skills，Codex 与 Cursor 读 .agents/skills）
+# Install into the current repo (Claude Code reads .claude/skills; Codex and Cursor read .agents/skills)
 bash geo-audit/install.sh
 
-# 装到用户目录，所有项目可用
+# Install into your home directory for all projects
 bash geo-audit/install.sh --user
 
-# 装到其他项目
+# Install into another project
 bash geo-audit/install.sh --project /path/to/project
 
-# 额外链接到 Cursor 专用目录 .cursor/skills（一般不需要，Cursor 也读 .agents/skills 和 .claude/skills）
+# Also link into Cursor's own .cursor/skills (usually unnecessary; Cursor also reads .agents/skills and .claude/skills)
 bash geo-audit/install.sh --tools claude,agents,cursor
 ```
 
-安装脚本只建符号链接；已存在的同名文件或目录不会被覆盖。
+The installer only creates symlinks; existing files or directories with the same name are never overwritten.
 
-## 在各工具中使用
+## Using it in each tool
 
-用自然语言提出审计请求即可，例如"帮我做一下 https://example.com 的 GEO 审计，目标市场日本和美国"。
+Just ask in natural language, for example: "Run a GEO audit of https://example.com for the Japanese and US markets"
 
-| 工具 | 说明 |
+| Tool | Notes |
 |---|---|
-| Claude Code | 直接使用。 |
-| Codex CLI | 需要开启网页搜索并允许沙箱联网，否则脚本无法抓取、站外一节无法检测：`codex --search exec -s workspace-write -c sandbox_workspace_write.network_access=true "<你的请求>"`（交互模式同理：`codex --search -s workspace-write -c sandbox_workspace_write.network_access=true`）。 |
-| Cursor | 按 Cursor 官方目录规则安装（`.agents/skills` / `.claude/skills` / `.cursor/skills`）。**未在 Cursor 中实测。** |
+| Claude Code | Works out of the box. |
+| Codex CLI | Enable web search and sandbox network access, otherwise the scripts cannot fetch pages and the off-site section cannot be checked: `codex --search exec -s workspace-write -c sandbox_workspace_write.network_access=true "<your request>"` (Interactive mode works the same way: `codex --search -s workspace-write -c sandbox_workspace_write.network_access=true`) |
+| Cursor | Install following Cursor's documented directories (`.agents/skills` / `.claude/skills` / `.cursor/skills`). **Not yet tested in Cursor.** |
 
-## 依赖
+## Requirements
 
-- Python 3.10+（只用标准库）
-- 可选：Chrome / Chromium，用于渲染对比；可用环境变量 `GEO_BROWSER` 指定浏览器路径
+- Python 3.10+ (standard library only)
+- Optional: Chrome / Chromium for the rendering comparison; set `GEO_BROWSER` to point to a specific browser
 
-## 单独运行脚本
+## Running the scripts directly
 
 ```bash
 python3 geo-audit/scripts/crawl_check.py https://example.com --markets jp,us
 python3 geo-audit/scripts/page_audit.py https://example.com/ja/ --lang ja-JP --save-html out/html
 python3 geo-audit/scripts/render_diff.py https://example.com/ja/ --lang ja-JP --timeout 30
-# 测试某国可达性时可走该国出口代理（不要用于规避限流）
-python3 geo-audit/scripts/crawl_check.py https://example.com --proxy http://<代理地址>:<端口>
+# To test reachability from a country, you may use an exit proxy in that country (never to evade rate limits)
+python3 geo-audit/scripts/crawl_check.py https://example.com --proxy http://<proxy-host>:<port>
 ```
 
-## 测试
+## Tests
 
 ```bash
 python3 -m unittest discover -s geo-audit/tests -v

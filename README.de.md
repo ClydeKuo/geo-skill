@@ -1,6 +1,6 @@
 # geo-audit
 
-[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Deutsch** | [Français](README.fr.md) | [Español](README.es.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Deutsch** | [Français](README.fr.md) | [Español](README.es.md)
 
 Ein Skill im offenen Agent-Skills-Format. Anhand einer einzigen URL prüft er von außen, wie sichtbar eine Website in der KI-Suche in einem oder mehreren Ländern bzw. Sprachmärkten ist (ChatGPT, Perplexity, Google AI Overviews, Gemini, Copilot, Doubao, DeepSeek, Naver AI Briefing, Le Chat usw.), und erstellt einen Optimierungsbericht, in dem jede Empfehlung nach Forschungsevidenz bewertet ist. Der Bericht wird in der Sprache verfasst, in der die Anfrage gestellt wurde.
 

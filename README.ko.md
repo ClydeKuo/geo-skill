@@ -1,6 +1,6 @@
 # geo-audit
 
-[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md) | **한국어** | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | **한국어** | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
 
 오픈 Agent Skills 형식의 skill입니다. URL만으로 하나 이상의 국가·언어 시장에서 웹사이트가 AI 검색(ChatGPT, Perplexity, Google AI Overviews, Gemini, Copilot, Doubao, DeepSeek, Naver AI 브리핑, Le Chat 등)에 어떻게 노출되는지 외부에서 감사하고, 모든 권고에 연구 근거의 강도를 표시한 개선 보고서를 만듭니다. 보고서는 사용자가 질문한 언어로 작성됩니다.
 

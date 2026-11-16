@@ -1,6 +1,6 @@
 # geo-audit
 
-[简体中文](README.md) | [English](README.en.md) | **日本語** | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | **日本語** | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
 
 オープンな Agent Skills 形式の skill です。URL だけを手がかりに、1 つまたは複数の国・言語市場における AI 検索での見え方（ChatGPT、Perplexity、Google AI Overviews、Gemini、Copilot、Doubao、DeepSeek、Naver AI Briefing、Le Chat など）をサイトの外側から監査し、各提案に研究エビデンスの強さを付けた改善レポートを出力します。レポートはユーザーが質問した言語で書かれます。
 
