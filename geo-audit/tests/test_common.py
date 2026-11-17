@@ -1,15 +1,17 @@
+import email.utils
 import gzip
-import unittest
-
-from helpers import fixture_bytes, serve
-
-import _common
 import json
 import os
 import subprocess
 import sys
+import unittest
+from unittest import mock
 
-from _common import MAX_BYTES, count_words, decode_body, extract_text, fetch, normalize_url
+from helpers import fixture_bytes, serve
+
+import _common
+from _common import (MAX_BYTES, accept_language, count_words, current_interval, decode_body,
+                     extract_text, fetch, normalize_url, parse_retry_after, reset_interval)
 
 
 class DecodeTests(unittest.TestCase):
@@ -120,18 +122,6 @@ class TextTests(unittest.TestCase):
         self.assertEqual(_common.item("pass", 1, "ok"), {"status": "pass", "value": 1, "detail": "ok"})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-import email.utils
-import time as _time
-from unittest import mock as _mock
-
-from _common import accept_language, current_interval, parse_retry_after, reset_interval
-import _common as _c
-
-
 class LangTests(unittest.TestCase):
     def test_accept_language_values(self):
         self.assertEqual(accept_language(None), "zh-CN,zh;q=0.9,en;q=0.8")
@@ -152,7 +142,7 @@ class RateLimitTests(unittest.TestCase):
     def setUp(self):
         reset_interval()
         self.sleeps = []
-        p = _mock.patch.object(_c.time, "sleep", side_effect=lambda s: self.sleeps.append(s))
+        p = mock.patch.object(_common.time, "sleep", side_effect=lambda s: self.sleeps.append(s))
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(reset_interval)
@@ -251,8 +241,12 @@ class RateLimitTests(unittest.TestCase):
         self.assertTrue(r["rate_limited"])
 
     def test_interval_doubles_and_caps(self):
-        _c._note_rate_limited()
+        _common._note_rate_limited()
         self.assertEqual(current_interval(), 2.0)
         for _ in range(4):
-            _c._note_rate_limited()
+            _common._note_rate_limited()
         self.assertEqual(current_interval(), 10.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
